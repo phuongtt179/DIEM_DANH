@@ -180,7 +180,7 @@ export default function DashboardPage() {
                 >
                   <div className="flex items-center justify-between mb-2 lg:mb-4">
                     <div className={`${card.color} w-8 h-8 lg:w-12 lg:h-12 rounded-lg flex items-center justify-center`}>
-                      <Icon className="text-white" size={16} className="lg:w-6 lg:h-6" />
+                      <Icon className="text-white w-4 h-4 lg:w-6 lg:h-6" />
                     </div>
                   </div>
                   <h3 className="text-gray-600 text-xs lg:text-sm font-semibold mb-1">{card.title}</h3>
