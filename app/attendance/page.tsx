@@ -199,7 +199,7 @@ export default function AttendancePage() {
             </select>
           </div>
 
-          <div>
+          <div className="min-w-0">
             <label className="block text-sm font-semibold text-gray-700 mb-2">
               Ngày <span className="text-red-500">*</span>
             </label>

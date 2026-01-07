@@ -270,7 +270,7 @@ export default function PaymentsPage() {
             </select>
           </div>
 
-          <div>
+          <div className="min-w-0">
             <label className="block text-sm font-semibold text-gray-700 mb-2">
               Tháng <span className="text-red-500">*</span>
             </label>
@@ -539,7 +539,7 @@ export default function PaymentsPage() {
                 </p>
               </div>
 
-              <div>
+              <div className="min-w-0">
                 <label className="block text-sm font-semibold text-gray-700 mb-2">
                   Ngày đóng <span className="text-red-500">*</span>
                 </label>
