@@ -53,9 +53,27 @@ input[type="month"] {
 input[type="date"]::-webkit-datetime-edit,
 input[type="month"]::-webkit-datetime-edit {
   min-width: 0 !important;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 input[type="date"]::-webkit-calendar-picker-indicator,
 input[type="month"]::-webkit-calendar-picker-indicator {
   flex-shrink: 0;
+  margin-left: 4px;
+}
+
+/* Mobile optimization for date/month inputs */
+@media (max-width: 1024px) {
+  input[type="date"],
+  input[type="month"] {
+    font-size: 13px !important;
+    padding-left: 8px !important;
+    padding-right: 8px !important;
+  }
+
+  input[type="date"]::-webkit-datetime-edit,
+  input[type="month"]::-webkit-datetime-edit {
+    font-size: 13px !important;
+  }
 }
