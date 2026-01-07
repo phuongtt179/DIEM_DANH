@@ -42,3 +42,20 @@ body {
 ::-webkit-scrollbar-thumb:hover {
   background: #555;
 }
+
+/* Fix date/month input overflow on mobile */
+input[type="date"],
+input[type="month"] {
+  min-width: 0 !important;
+  max-width: 100% !important;
+}
+
+input[type="date"]::-webkit-datetime-edit,
+input[type="month"]::-webkit-datetime-edit {
+  min-width: 0 !important;
+}
+
+input[type="date"]::-webkit-calendar-picker-indicator,
+input[type="month"]::-webkit-calendar-picker-indicator {
+  flex-shrink: 0;
+}
