@@ -156,10 +156,10 @@ export default function DashboardPage() {
     : 0;
 
   return (
-    <div className="p-8">
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold text-gray-800">Tổng quan</h1>
-        <p className="text-gray-600 mt-1">Dashboard quản lý lớp học & điểm danh</p>
+    <div className="p-4 lg:p-8">
+      <div className="mb-6 lg:mb-8">
+        <h1 className="text-2xl lg:text-3xl font-bold text-gray-800">Tổng quan</h1>
+        <p className="text-sm lg:text-base text-gray-600 mt-1">Dashboard quản lý lớp học & điểm danh</p>
       </div>
 
       {loading ? (
@@ -169,33 +169,33 @@ export default function DashboardPage() {
       ) : (
         <>
           {/* Stats Cards */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 lg:gap-6 mb-6 lg:mb-8">
             {statCards.map((card) => {
               const Icon = card.icon;
               return (
                 <Link
                   key={card.title}
                   href={card.link}
-                  className="bg-white rounded-xl shadow-md hover:shadow-xl transition-all p-6 border-2 border-transparent hover:border-blue-400"
+                  className="bg-white rounded-lg lg:rounded-xl shadow-md hover:shadow-xl transition-all p-3 lg:p-6 border-2 border-transparent hover:border-blue-400"
                 >
-                  <div className="flex items-center justify-between mb-4">
-                    <div className={`${card.color} w-12 h-12 rounded-lg flex items-center justify-center`}>
-                      <Icon className="text-white" size={24} />
+                  <div className="flex items-center justify-between mb-2 lg:mb-4">
+                    <div className={`${card.color} w-8 h-8 lg:w-12 lg:h-12 rounded-lg flex items-center justify-center`}>
+                      <Icon className="text-white" size={16} className="lg:w-6 lg:h-6" />
                     </div>
                   </div>
-                  <h3 className="text-gray-600 text-sm font-semibold mb-1">{card.title}</h3>
-                  <p className="text-3xl font-bold text-gray-800">{card.value}</p>
+                  <h3 className="text-gray-600 text-xs lg:text-sm font-semibold mb-1">{card.title}</h3>
+                  <p className="text-xl lg:text-3xl font-bold text-gray-800">{card.value}</p>
                 </Link>
               );
             })}
           </div>
 
           {/* Detailed Stats */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 lg:gap-6 mb-6 lg:mb-8">
             {/* Attendance Stats */}
-            <div className="bg-white rounded-xl shadow-md p-6">
-              <h2 className="text-xl font-bold text-gray-800 mb-4 flex items-center gap-2">
-                <ClipboardList className="text-yellow-500" size={24} />
+            <div className="bg-white rounded-lg lg:rounded-xl shadow-md p-4 lg:p-6">
+              <h2 className="text-lg lg:text-xl font-bold text-gray-800 mb-3 lg:mb-4 flex items-center gap-2">
+                <ClipboardList className="text-yellow-500" size={20} />
                 Điểm danh hôm nay
               </h2>
               <div className="space-y-4">
@@ -223,9 +223,9 @@ export default function DashboardPage() {
             </div>
 
             {/* Payment Stats */}
-            <div className="bg-white rounded-xl shadow-md p-6">
-              <h2 className="text-xl font-bold text-gray-800 mb-4 flex items-center gap-2">
-                <DollarSign className="text-purple-500" size={24} />
+            <div className="bg-white rounded-lg lg:rounded-xl shadow-md p-4 lg:p-6">
+              <h2 className="text-lg lg:text-xl font-bold text-gray-800 mb-3 lg:mb-4 flex items-center gap-2">
+                <DollarSign className="text-purple-500" size={20} />
                 Học phí tháng {format(new Date(), 'MM/yyyy')}
               </h2>
               <div className="space-y-4">
@@ -265,36 +265,36 @@ export default function DashboardPage() {
           </div>
 
           {/* Quick Actions */}
-          <div className="bg-white rounded-xl shadow-md p-6">
-            <h2 className="text-xl font-bold text-gray-800 mb-4">Thao tác nhanh</h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="bg-white rounded-lg lg:rounded-xl shadow-md p-4 lg:p-6">
+            <h2 className="text-lg lg:text-xl font-bold text-gray-800 mb-3 lg:mb-4">Thao tác nhanh</h2>
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 lg:gap-4">
               <Link
                 href="/classes"
-                className="flex items-center gap-3 p-4 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors"
+                className="flex flex-col lg:flex-row items-center gap-2 lg:gap-3 p-3 lg:p-4 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors"
               >
-                <BookOpen className="text-blue-600" size={24} />
-                <span className="font-semibold text-gray-800">Quản lý lớp học</span>
+                <BookOpen className="text-blue-600" size={20} />
+                <span className="text-xs lg:text-sm font-semibold text-gray-800 text-center lg:text-left">Quản lý lớp học</span>
               </Link>
               <Link
                 href="/students"
-                className="flex items-center gap-3 p-4 bg-green-50 hover:bg-green-100 rounded-lg transition-colors"
+                className="flex flex-col lg:flex-row items-center gap-2 lg:gap-3 p-3 lg:p-4 bg-green-50 hover:bg-green-100 rounded-lg transition-colors"
               >
-                <Users className="text-green-600" size={24} />
-                <span className="font-semibold text-gray-800">Quản lý học sinh</span>
+                <Users className="text-green-600" size={20} />
+                <span className="text-xs lg:text-sm font-semibold text-gray-800 text-center lg:text-left">Quản lý học sinh</span>
               </Link>
               <Link
                 href="/attendance"
-                className="flex items-center gap-3 p-4 bg-yellow-50 hover:bg-yellow-100 rounded-lg transition-colors"
+                className="flex flex-col lg:flex-row items-center gap-2 lg:gap-3 p-3 lg:p-4 bg-yellow-50 hover:bg-yellow-100 rounded-lg transition-colors"
               >
-                <ClipboardList className="text-yellow-600" size={24} />
-                <span className="font-semibold text-gray-800">Điểm danh</span>
+                <ClipboardList className="text-yellow-600" size={20} />
+                <span className="text-xs lg:text-sm font-semibold text-gray-800 text-center lg:text-left">Điểm danh</span>
               </Link>
               <Link
                 href="/payments"
-                className="flex items-center gap-3 p-4 bg-purple-50 hover:bg-purple-100 rounded-lg transition-colors"
+                className="flex flex-col lg:flex-row items-center gap-2 lg:gap-3 p-3 lg:p-4 bg-purple-50 hover:bg-purple-100 rounded-lg transition-colors"
               >
-                <DollarSign className="text-purple-600" size={24} />
-                <span className="font-semibold text-gray-800">Quản lý học phí</span>
+                <DollarSign className="text-purple-600" size={20} />
+                <span className="text-xs lg:text-sm font-semibold text-gray-800 text-center lg:text-left">Quản lý học phí</span>
               </Link>
             </div>
           </div>

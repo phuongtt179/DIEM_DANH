@@ -60,7 +60,6 @@ export default function PaymentsPage() {
     try {
       setLoading(true);
 
-      // Get students in the class
       const { data: students, error: studentsError } = await supabase
         .from('students')
         .select('*')
@@ -69,7 +68,6 @@ export default function PaymentsPage() {
 
       if (studentsError) throw studentsError;
 
-      // Get class info for tuition amount
       const { data: classData, error: classError } = await supabase
         .from('classes')
         .select('tuition')
@@ -78,7 +76,6 @@ export default function PaymentsPage() {
 
       if (classError) throw classError;
 
-      // Get existing payment records for this month
       const { data: existingPayments, error: paymentsError } = await supabase
         .from('payments')
         .select('*')
@@ -87,7 +84,6 @@ export default function PaymentsPage() {
 
       if (paymentsError) throw paymentsError;
 
-      // Create payment records array
       const records: PaymentRecord[] = (students || []).map((student) => {
         const existing = existingPayments?.find(p => p.student_id === student.id);
         return {
@@ -139,7 +135,6 @@ export default function PaymentsPage() {
     try {
       setSaving(true);
 
-      // Check if record exists
       const { data: existing } = await supabase
         .from('payments')
         .select('id')
@@ -149,7 +144,6 @@ export default function PaymentsPage() {
         .single();
 
       if (existing) {
-        // Update
         await supabase
           .from('payments')
           .update({
@@ -160,7 +154,6 @@ export default function PaymentsPage() {
           })
           .eq('id', existing.id);
       } else {
-        // Insert
         await supabase
           .from('payments')
           .insert([{
@@ -174,7 +167,6 @@ export default function PaymentsPage() {
           }]);
       }
 
-      // Update local state
       setPaymentRecords(records =>
         records.map(r =>
           r.studentId === editingPayment.studentId
@@ -203,7 +195,6 @@ export default function PaymentsPage() {
     try {
       setSaving(true);
 
-      // Check if record exists
       const { data: existing } = await supabase
         .from('payments')
         .select('id')
@@ -212,18 +203,16 @@ export default function PaymentsPage() {
         .eq('month', selectedMonth)
         .single();
 
-      if (existing) {
-        // Update
-        await supabase
-          .from('payments')
-          .update({
-            status: 'unpaid',
-            paid_date: null,
-          })
-          .eq('id', existing.id);
-      }
+      if (!existing) return;
 
-      // Update local state
+      await supabase
+        .from('payments')
+        .update({
+          status: 'unpaid',
+          paid_date: null,
+        })
+        .eq('id', existing.id);
+
       setPaymentRecords(records =>
         records.map(r =>
           r.studentId === studentId
@@ -251,15 +240,15 @@ export default function PaymentsPage() {
   };
 
   return (
-    <div className="p-8">
-      <div className="mb-6">
-        <h1 className="text-3xl font-bold text-gray-800">Quản lý Học phí</h1>
-        <p className="text-gray-600 mt-1">Theo dõi học phí đã đóng/chưa đóng theo tháng</p>
+    <div className="p-4 lg:p-8">
+      <div className="mb-6 lg:mb-8">
+        <h1 className="text-2xl lg:text-3xl font-bold text-gray-800">Quản lý Học phí</h1>
+        <p className="text-sm lg:text-base text-gray-600 mt-1">Theo dõi học phí đã đóng/chưa đóng theo tháng</p>
       </div>
 
       {/* Controls */}
-      <div className="bg-white p-6 rounded-lg shadow mb-6 space-y-4">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div className="bg-white p-4 lg:p-6 rounded-lg shadow mb-4 lg:mb-6 space-y-4">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           <div>
             <label className="block text-sm font-semibold text-gray-700 mb-2">
               Lớp <span className="text-red-500">*</span>
@@ -267,7 +256,7 @@ export default function PaymentsPage() {
             <select
               value={selectedClassId}
               onChange={(e) => setSelectedClassId(e.target.value)}
-              className="w-full px-4 py-2 border-2 border-gray-300 rounded-lg focus:border-blue-500 focus:outline-none"
+              className="w-full px-3 lg:px-4 py-2 border-2 border-gray-300 rounded-lg focus:border-blue-500 focus:outline-none text-sm lg:text-base"
             >
               {classes.length === 0 ? (
                 <option value="">Chưa có lớp học</option>
@@ -289,27 +278,27 @@ export default function PaymentsPage() {
               type="month"
               value={selectedMonth}
               onChange={(e) => setSelectedMonth(e.target.value)}
-              className="w-full px-4 py-2 border-2 border-gray-300 rounded-lg focus:border-blue-500 focus:outline-none"
+              className="w-full px-3 lg:px-4 py-2 border-2 border-gray-300 rounded-lg focus:border-blue-500 focus:outline-none text-sm lg:text-base"
             />
           </div>
         </div>
 
         {/* Stats */}
         {paymentRecords.length > 0 && (
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-4 pt-4 border-t">
-            <div className="bg-blue-50 p-4 rounded-lg">
-              <p className="text-sm text-gray-600 mb-1">Tổng số học sinh</p>
-              <p className="text-2xl font-bold text-blue-600">{stats.total}</p>
+          <div className="grid grid-cols-3 gap-2 lg:gap-4 pt-4 border-t">
+            <div className="bg-blue-50 p-2 lg:p-4 rounded-lg">
+              <p className="text-xs lg:text-sm text-gray-600 mb-1">Tổng số HS</p>
+              <p className="text-xl lg:text-2xl font-bold text-blue-600">{stats.total}</p>
             </div>
-            <div className="bg-green-50 p-4 rounded-lg">
-              <p className="text-sm text-gray-600 mb-1">Đã đóng</p>
-              <p className="text-2xl font-bold text-green-600">{stats.paid}</p>
-              <p className="text-sm text-gray-600 mt-1">{stats.paidAmount.toLocaleString('vi-VN')} đ</p>
+            <div className="bg-green-50 p-2 lg:p-4 rounded-lg">
+              <p className="text-xs lg:text-sm text-gray-600 mb-1">Đã đóng</p>
+              <p className="text-xl lg:text-2xl font-bold text-green-600">{stats.paid}</p>
+              <p className="text-xs text-gray-600 mt-1 hidden lg:block">{stats.paidAmount.toLocaleString('vi-VN')} đ</p>
             </div>
-            <div className="bg-red-50 p-4 rounded-lg">
-              <p className="text-sm text-gray-600 mb-1">Chưa đóng</p>
-              <p className="text-2xl font-bold text-red-600">{stats.unpaid}</p>
-              <p className="text-sm text-gray-600 mt-1">{stats.unpaidAmount.toLocaleString('vi-VN')} đ</p>
+            <div className="bg-red-50 p-2 lg:p-4 rounded-lg">
+              <p className="text-xs lg:text-sm text-gray-600 mb-1">Chưa đóng</p>
+              <p className="text-xl lg:text-2xl font-bold text-red-600">{stats.unpaid}</p>
+              <p className="text-xs text-gray-600 mt-1 hidden lg:block">{stats.unpaidAmount.toLocaleString('vi-VN')} đ</p>
             </div>
           </div>
         )}
@@ -322,108 +311,188 @@ export default function PaymentsPage() {
         </div>
       ) : !selectedClassId ? (
         <div className="text-center py-12 bg-white rounded-lg shadow">
-          <p className="text-gray-500 text-lg">Vui lòng chọn lớp để quản lý học phí</p>
+          <p className="text-gray-500 text-sm lg:text-lg">Vui lòng chọn lớp để quản lý học phí</p>
         </div>
       ) : paymentRecords.length === 0 ? (
         <div className="text-center py-12 bg-white rounded-lg shadow">
-          <p className="text-gray-500 text-lg">Lớp này chưa có học sinh</p>
-          <p className="text-gray-400 mt-2">Thêm học sinh để quản lý học phí</p>
+          <p className="text-gray-500 text-sm lg:text-lg">Lớp này chưa có học sinh</p>
+          <p className="text-gray-400 text-xs lg:text-sm mt-2">Thêm học sinh để quản lý học phí</p>
         </div>
       ) : (
-        <div className="bg-white rounded-lg shadow overflow-hidden">
-          <table className="w-full">
-            <thead className="bg-gray-50 border-b-2 border-gray-200">
-              <tr>
-                <th className="px-6 py-4 text-left text-sm font-bold text-gray-700">STT</th>
-                <th className="px-6 py-4 text-left text-sm font-bold text-gray-700">Họ tên</th>
-                <th className="px-6 py-4 text-center text-sm font-bold text-gray-700">Số buổi</th>
-                <th className="px-6 py-4 text-right text-sm font-bold text-gray-700">Số tiền</th>
-                <th className="px-6 py-4 text-center text-sm font-bold text-gray-700">Trạng thái</th>
-                <th className="px-6 py-4 text-center text-sm font-bold text-gray-700">Ngày đóng</th>
-                <th className="px-6 py-4 text-center text-sm font-bold text-gray-700">Thao tác</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-200">
-              {paymentRecords.map((record, index) => (
-                <tr key={record.studentId} className="hover:bg-gray-50 transition-colors">
-                  <td className="px-6 py-4 text-gray-600">{index + 1}</td>
-                  <td className="px-6 py-4 font-semibold text-gray-800">{record.studentName}</td>
-                  <td className="px-6 py-4 text-center text-gray-600">{record.sessions} buổi</td>
-                  <td className="px-6 py-4 text-right font-semibold text-gray-800">
-                    {record.amount.toLocaleString('vi-VN')} đ
-                  </td>
-                  <td className="px-6 py-4 text-center">
-                    {record.status === 'paid' ? (
-                      <span className="inline-flex items-center gap-1 px-3 py-1 bg-green-100 text-green-700 rounded-full text-sm font-semibold">
-                        <CheckCircle size={16} />
-                        Đã đóng
-                      </span>
-                    ) : (
-                      <span className="inline-flex items-center gap-1 px-3 py-1 bg-red-100 text-red-700 rounded-full text-sm font-semibold">
-                        <XCircle size={16} />
-                        Chưa đóng
-                      </span>
-                    )}
-                  </td>
-                  <td className="px-6 py-4 text-center text-gray-600">
-                    {record.paidDate ? format(new Date(record.paidDate), 'dd/MM/yyyy') : '-'}
-                  </td>
-                  <td className="px-6 py-4">
-                    <div className="flex justify-center gap-2">
-                      {record.status === 'unpaid' ? (
-                        <button
-                          onClick={() => openPaymentModal(record.studentId)}
-                          disabled={saving}
-                          className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-semibold text-sm disabled:bg-gray-300"
-                        >
-                          <CheckCircle size={16} className="inline mr-1" />
-                          Đánh dấu đã đóng
-                        </button>
+        <>
+          {/* Desktop Table View */}
+          <div className="hidden lg:block bg-white rounded-lg shadow overflow-hidden">
+            <table className="w-full">
+              <thead className="bg-gray-50 border-b-2 border-gray-200">
+                <tr>
+                  <th className="px-6 py-4 text-left text-sm font-bold text-gray-700">STT</th>
+                  <th className="px-6 py-4 text-left text-sm font-bold text-gray-700">Họ tên</th>
+                  <th className="px-6 py-4 text-center text-sm font-bold text-gray-700">Số buổi</th>
+                  <th className="px-6 py-4 text-right text-sm font-bold text-gray-700">Số tiền</th>
+                  <th className="px-6 py-4 text-center text-sm font-bold text-gray-700">Trạng thái</th>
+                  <th className="px-6 py-4 text-center text-sm font-bold text-gray-700">Ngày đóng</th>
+                  <th className="px-6 py-4 text-center text-sm font-bold text-gray-700">Thao tác</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-200">
+                {paymentRecords.map((record, index) => (
+                  <tr key={record.studentId} className="hover:bg-gray-50 transition-colors">
+                    <td className="px-6 py-4 text-gray-600">{index + 1}</td>
+                    <td className="px-6 py-4 font-semibold text-gray-800">{record.studentName}</td>
+                    <td className="px-6 py-4 text-center text-gray-600">{record.sessions} buổi</td>
+                    <td className="px-6 py-4 text-right font-semibold text-gray-800">
+                      {record.amount.toLocaleString('vi-VN')} đ
+                    </td>
+                    <td className="px-6 py-4 text-center">
+                      {record.status === 'paid' ? (
+                        <span className="inline-flex items-center gap-1 px-3 py-1 bg-green-100 text-green-700 rounded-full text-sm font-semibold">
+                          <CheckCircle size={16} />
+                          Đã đóng
+                        </span>
                       ) : (
-                        <>
+                        <span className="inline-flex items-center gap-1 px-3 py-1 bg-red-100 text-red-700 rounded-full text-sm font-semibold">
+                          <XCircle size={16} />
+                          Chưa đóng
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-6 py-4 text-center text-gray-600">
+                      {record.paidDate ? format(new Date(record.paidDate), 'dd/MM/yyyy') : '-'}
+                    </td>
+                    <td className="px-6 py-4">
+                      <div className="flex justify-center gap-2">
+                        {record.status === 'unpaid' ? (
                           <button
                             onClick={() => openPaymentModal(record.studentId)}
                             disabled={saving}
-                            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-semibold text-sm disabled:bg-gray-300"
+                            className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-semibold text-sm disabled:bg-gray-300"
                           >
-                            Sửa
+                            <CheckCircle size={16} className="inline mr-1" />
+                            Đánh dấu đã đóng
                           </button>
-                          <button
-                            onClick={() => markAsUnpaid(record.studentId)}
-                            disabled={saving}
-                            className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors font-semibold text-sm disabled:bg-gray-300"
-                          >
-                            <XCircle size={16} className="inline mr-1" />
-                            Đánh dấu chưa đóng
-                          </button>
-                        </>
+                        ) : (
+                          <>
+                            <button
+                              onClick={() => openPaymentModal(record.studentId)}
+                              disabled={saving}
+                              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-semibold text-sm disabled:bg-gray-300"
+                            >
+                              Sửa
+                            </button>
+                            <button
+                              onClick={() => markAsUnpaid(record.studentId)}
+                              disabled={saving}
+                              className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors font-semibold text-sm disabled:bg-gray-300"
+                            >
+                              <XCircle size={16} className="inline mr-1" />
+                              Đánh dấu chưa đóng
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Mobile Card View */}
+          <div className="lg:hidden space-y-3">
+            {paymentRecords.map((record, index) => (
+              <div
+                key={record.studentId}
+                className={`bg-white rounded-lg shadow-md p-4 border-l-4 ${
+                  record.status === 'paid' ? 'border-green-500' : 'border-red-500'
+                }`}
+              >
+                <div className="flex justify-between items-start mb-3">
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-gray-500">#{index + 1}</span>
+                      <h3 className="font-bold text-gray-800">{record.studentName}</h3>
+                    </div>
+                    <div className="mt-2 space-y-1">
+                      <p className="text-sm text-gray-600">
+                        <span className="font-semibold">Số buổi:</span> {record.sessions} buổi
+                      </p>
+                      <p className="text-sm text-gray-600">
+                        <span className="font-semibold">Số tiền:</span> {record.amount.toLocaleString('vi-VN')} đ
+                      </p>
+                      {record.paidDate && (
+                        <p className="text-sm text-gray-600">
+                          <span className="font-semibold">Ngày đóng:</span> {format(new Date(record.paidDate), 'dd/MM/yyyy')}
+                        </p>
                       )}
                     </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+                  </div>
+                  <div>
+                    {record.status === 'paid' ? (
+                      <span className="inline-flex items-center gap-1 px-2 py-1 bg-green-100 text-green-700 rounded-full text-xs font-semibold">
+                        <CheckCircle size={14} />
+                        Đã đóng
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 px-2 py-1 bg-red-100 text-red-700 rounded-full text-xs font-semibold">
+                        <XCircle size={14} />
+                        Chưa đóng
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <div className="flex gap-2 mt-3 pt-3 border-t">
+                  {record.status === 'unpaid' ? (
+                    <button
+                      onClick={() => openPaymentModal(record.studentId)}
+                      disabled={saving}
+                      className="flex-1 px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-semibold text-sm disabled:bg-gray-300 flex items-center justify-center gap-1"
+                    >
+                      <CheckCircle size={14} />
+                      Đã đóng
+                    </button>
+                  ) : (
+                    <>
+                      <button
+                        onClick={() => openPaymentModal(record.studentId)}
+                        disabled={saving}
+                        className="flex-1 px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-semibold text-sm disabled:bg-gray-300"
+                      >
+                        Sửa
+                      </button>
+                      <button
+                        onClick={() => markAsUnpaid(record.studentId)}
+                        disabled={saving}
+                        className="flex-1 px-3 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors font-semibold text-sm disabled:bg-gray-300 flex items-center justify-center gap-1"
+                      >
+                        <XCircle size={14} />
+                        Chưa đóng
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </>
       )}
 
       {/* Payment Modal */}
       {showModal && editingPayment && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full">
-            <div className="flex justify-between items-center p-6 border-b">
-              <h2 className="text-2xl font-bold text-gray-800">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full max-h-[90vh] overflow-y-auto">
+            <div className="flex justify-between items-center p-4 lg:p-6 border-b sticky top-0 bg-white">
+              <h2 className="text-lg lg:text-2xl font-bold text-gray-800">
                 {editingPayment.status === 'paid' ? 'Sửa học phí' : 'Đánh dấu đã đóng'}
               </h2>
               <button
                 onClick={closeModal}
                 className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
               >
-                <X size={24} />
+                <X size={20} />
               </button>
             </div>
 
-            <form onSubmit={handleSubmitPayment} className="p-6 space-y-4">
+            <form onSubmit={handleSubmitPayment} className="p-4 lg:p-6 space-y-4">
               <div>
                 <label className="block text-sm font-semibold text-gray-700 mb-2">
                   Học sinh
@@ -432,7 +501,7 @@ export default function PaymentsPage() {
                   type="text"
                   value={editingPayment.studentName}
                   disabled
-                  className="w-full px-4 py-2 border-2 border-gray-300 rounded-lg bg-gray-50 text-gray-600"
+                  className="w-full px-3 lg:px-4 py-2 border-2 border-gray-300 rounded-lg bg-gray-50 text-gray-600 text-sm lg:text-base"
                 />
               </div>
 
@@ -447,10 +516,10 @@ export default function PaymentsPage() {
                   step="1"
                   value={paymentForm.sessions}
                   onChange={(e) => setPaymentForm({ ...paymentForm, sessions: e.target.value })}
-                  className="w-full px-4 py-2 border-2 border-gray-300 rounded-lg focus:border-blue-500 focus:outline-none"
+                  className="w-full px-3 lg:px-4 py-2 border-2 border-gray-300 rounded-lg focus:border-blue-500 focus:outline-none text-sm lg:text-base"
                   placeholder="VD: 4"
                 />
-                <p className="text-sm text-gray-500 mt-1">
+                <p className="text-xs lg:text-sm text-gray-500 mt-1">
                   Tổng số buổi học trong tháng này
                 </p>
               </div>
@@ -466,10 +535,10 @@ export default function PaymentsPage() {
                   step="1000"
                   value={paymentForm.amount}
                   onChange={(e) => setPaymentForm({ ...paymentForm, amount: e.target.value })}
-                  className="w-full px-4 py-2 border-2 border-gray-300 rounded-lg focus:border-blue-500 focus:outline-none"
+                  className="w-full px-3 lg:px-4 py-2 border-2 border-gray-300 rounded-lg focus:border-blue-500 focus:outline-none text-sm lg:text-base"
                   placeholder="VD: 500000"
                 />
-                <p className="text-sm text-gray-500 mt-1">
+                <p className="text-xs lg:text-sm text-gray-500 mt-1">
                   Học phí mặc định: {editingPayment.amount.toLocaleString('vi-VN')} đ
                 </p>
               </div>
@@ -483,7 +552,7 @@ export default function PaymentsPage() {
                   required
                   value={paymentForm.paidDate}
                   onChange={(e) => setPaymentForm({ ...paymentForm, paidDate: e.target.value })}
-                  className="w-full px-4 py-2 border-2 border-gray-300 rounded-lg focus:border-blue-500 focus:outline-none"
+                  className="w-full px-3 lg:px-4 py-2 border-2 border-gray-300 rounded-lg focus:border-blue-500 focus:outline-none text-sm lg:text-base"
                 />
               </div>
 
@@ -491,14 +560,14 @@ export default function PaymentsPage() {
                 <button
                   type="button"
                   onClick={closeModal}
-                  className="flex-1 px-6 py-3 border-2 border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors font-semibold"
+                  className="flex-1 px-4 lg:px-6 py-2 lg:py-3 border-2 border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors font-semibold text-sm lg:text-base"
                 >
                   Hủy
                 </button>
                 <button
                   type="submit"
                   disabled={saving}
-                  className="flex-1 px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-semibold disabled:bg-gray-300"
+                  className="flex-1 px-4 lg:px-6 py-2 lg:py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-semibold disabled:bg-gray-300 text-sm lg:text-base"
                 >
                   {saving ? 'Đang lưu...' : 'Xác nhận'}
                 </button>
