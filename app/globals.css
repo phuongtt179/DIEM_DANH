@@ -72,6 +72,7 @@ input[type="month"]::-webkit-calendar-picker-indicator {
     padding-right: 6px !important;
     width: 100% !important;
     text-align: left !important;
+    direction: ltr !important;
   }
 
   input[type="date"]::-webkit-datetime-edit,
@@ -80,12 +81,36 @@ input[type="month"]::-webkit-calendar-picker-indicator {
     max-width: calc(100% - 26px) !important;
     display: inline-block !important;
     text-align: left !important;
+    padding-left: 0 !important;
+    padding-right: 0 !important;
+  }
+
+  input[type="date"]::-webkit-datetime-edit-fields-wrapper,
+  input[type="month"]::-webkit-datetime-edit-fields-wrapper {
+    text-align: left !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+
+  input[type="date"]::-webkit-datetime-edit-text,
+  input[type="month"]::-webkit-datetime-edit-text {
+    padding: 0 !important;
+  }
+
+  input[type="date"]::-webkit-datetime-edit-month-field,
+  input[type="date"]::-webkit-datetime-edit-day-field,
+  input[type="date"]::-webkit-datetime-edit-year-field,
+  input[type="month"]::-webkit-datetime-edit-month-field,
+  input[type="month"]::-webkit-datetime-edit-year-field {
+    text-align: left !important;
+    padding: 0 !important;
   }
 
   input[type="date"]::-webkit-calendar-picker-indicator,
   input[type="month"]::-webkit-calendar-picker-indicator {
     width: 18px !important;
     min-width: 18px !important;
-    margin-left: 2px !important;
+    margin-left: auto !important;
+    margin-right: 0 !important;
   }
 }
