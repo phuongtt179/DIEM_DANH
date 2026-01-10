@@ -230,118 +230,9 @@ export default function DashboardPage() {
             })}
           </div>
 
-          {/* Detailed Stats */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 lg:gap-6 mb-6 lg:mb-8">
-            {/* Attendance Stats */}
-            <div className="bg-white rounded-lg lg:rounded-xl shadow-md p-4 lg:p-6">
-              <h2 className="text-lg lg:text-xl font-bold text-gray-800 mb-3 lg:mb-4 flex items-center gap-2">
-                <ClipboardList className="text-yellow-500" size={20} />
-                Điểm danh hôm nay
-              </h2>
-              <div className="space-y-4">
-                <div className="flex justify-between items-center">
-                  <span className="text-gray-600">Có mặt:</span>
-                  <span className="text-2xl font-bold text-green-600">{stats.todayAttendance.present}</span>
-                </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-gray-600">Tổng số:</span>
-                  <span className="text-2xl font-bold text-gray-800">{stats.todayAttendance.total}</span>
-                </div>
-                <div className="pt-4 border-t">
-                  <div className="flex justify-between items-center mb-2">
-                    <span className="text-gray-600 font-semibold">Tỷ lệ:</span>
-                    <span className="text-xl font-bold text-blue-600">{attendancePercentage}%</span>
-                  </div>
-                  <div className="w-full bg-gray-200 rounded-full h-3">
-                    <div
-                      className="bg-gradient-to-r from-green-400 to-green-600 h-3 rounded-full transition-all duration-500"
-                      style={{ width: `${attendancePercentage}%` }}
-                    ></div>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Payment Stats */}
-            <div className="bg-white rounded-lg lg:rounded-xl shadow-md p-4 lg:p-6">
-              <h2 className="text-lg lg:text-xl font-bold text-gray-800 mb-3 lg:mb-4 flex items-center gap-2">
-                <DollarSign className="text-purple-500" size={20} />
-                Học phí tháng {format(new Date(), 'MM/yyyy')}
-              </h2>
-              <div className="space-y-4">
-                <div className="flex justify-between items-center">
-                  <span className="text-gray-600">Đã đóng:</span>
-                  <span className="text-2xl font-bold text-green-600">{stats.currentMonthPayments.paid}</span>
-                </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-gray-600">Chưa đóng:</span>
-                  <span className="text-2xl font-bold text-red-600">{stats.currentMonthPayments.unpaid}</span>
-                </div>
-                <div className="pt-4 border-t">
-                  <div className="flex justify-between items-center mb-2">
-                    <span className="text-gray-600 font-semibold">Đã thu:</span>
-                    <span className="text-lg font-bold text-green-600">
-                      {stats.currentMonthPayments.paidAmount.toLocaleString('vi-VN')} đ
-                    </span>
-                  </div>
-                  <div className="flex justify-between items-center mb-2">
-                    <span className="text-gray-600 font-semibold">Tổng dự kiến:</span>
-                    <span className="text-lg font-bold text-gray-800">
-                      {stats.currentMonthPayments.totalAmount.toLocaleString('vi-VN')} đ
-                    </span>
-                  </div>
-                  <div className="w-full bg-gray-200 rounded-full h-3 mt-3">
-                    <div
-                      className="bg-gradient-to-r from-purple-400 to-purple-600 h-3 rounded-full transition-all duration-500"
-                      style={{ width: `${paymentPercentage}%` }}
-                    ></div>
-                  </div>
-                  <p className="text-center mt-2 text-sm text-gray-600">
-                    {paymentPercentage}% đã thu
-                  </p>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Quick Actions */}
-          <div className="bg-white rounded-lg lg:rounded-xl shadow-md p-4 lg:p-6">
-            <h2 className="text-lg lg:text-xl font-bold text-gray-800 mb-3 lg:mb-4">Thao tác nhanh</h2>
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 lg:gap-4">
-              <Link
-                href="/classes"
-                className="flex flex-col lg:flex-row items-center gap-2 lg:gap-3 p-3 lg:p-4 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors"
-              >
-                <BookOpen className="text-blue-600" size={20} />
-                <span className="text-xs lg:text-sm font-semibold text-gray-800 text-center lg:text-left">Quản lý lớp học</span>
-              </Link>
-              <Link
-                href="/students"
-                className="flex flex-col lg:flex-row items-center gap-2 lg:gap-3 p-3 lg:p-4 bg-green-50 hover:bg-green-100 rounded-lg transition-colors"
-              >
-                <Users className="text-green-600" size={20} />
-                <span className="text-xs lg:text-sm font-semibold text-gray-800 text-center lg:text-left">Quản lý học sinh</span>
-              </Link>
-              <Link
-                href="/attendance"
-                className="flex flex-col lg:flex-row items-center gap-2 lg:gap-3 p-3 lg:p-4 bg-yellow-50 hover:bg-yellow-100 rounded-lg transition-colors"
-              >
-                <ClipboardList className="text-yellow-600" size={20} />
-                <span className="text-xs lg:text-sm font-semibold text-gray-800 text-center lg:text-left">Điểm danh</span>
-              </Link>
-              <Link
-                href="/payments"
-                className="flex flex-col lg:flex-row items-center gap-2 lg:gap-3 p-3 lg:p-4 bg-purple-50 hover:bg-purple-100 rounded-lg transition-colors"
-              >
-                <DollarSign className="text-purple-600" size={20} />
-                <span className="text-xs lg:text-sm font-semibold text-gray-800 text-center lg:text-left">Quản lý học phí</span>
-              </Link>
-            </div>
-          </div>
-
           {/* Today's Payments */}
           {todayPayments.length > 0 && (
-            <div className="bg-white rounded-lg lg:rounded-xl shadow-md p-4 lg:p-6 mt-6 lg:mt-8">
+            <div className="bg-white rounded-lg lg:rounded-xl shadow-md p-4 lg:p-6 mb-6 lg:mb-8">
               <h2 className="text-lg lg:text-xl font-bold text-gray-800 mb-3 lg:mb-4 flex items-center gap-2">
                 <DollarSign className="text-green-500" size={20} />
                 Học phí hôm nay ({format(new Date(), 'dd/MM/yyyy')})
@@ -382,6 +273,47 @@ export default function DashboardPage() {
               </div>
             </div>
           )}
+
+          {/* Payment Stats */}
+          <div className="bg-white rounded-lg lg:rounded-xl shadow-md p-4 lg:p-6 mb-6 lg:mb-8">
+            <h2 className="text-lg lg:text-xl font-bold text-gray-800 mb-3 lg:mb-4 flex items-center gap-2">
+              <DollarSign className="text-purple-500" size={20} />
+              Học phí tháng {format(new Date(), 'MM/yyyy')}
+            </h2>
+            <div className="space-y-4">
+              <div className="flex justify-between items-center">
+                <span className="text-gray-600">Đã đóng:</span>
+                <span className="text-2xl font-bold text-green-600">{stats.currentMonthPayments.paid}</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-gray-600">Chưa đóng:</span>
+                <span className="text-2xl font-bold text-red-600">{stats.currentMonthPayments.unpaid}</span>
+              </div>
+              <div className="pt-4 border-t">
+                <div className="flex justify-between items-center mb-2">
+                  <span className="text-gray-600 font-semibold">Đã thu:</span>
+                  <span className="text-lg font-bold text-green-600">
+                    {stats.currentMonthPayments.paidAmount.toLocaleString('vi-VN')} đ
+                  </span>
+                </div>
+                <div className="flex justify-between items-center mb-2">
+                  <span className="text-gray-600 font-semibold">Tổng dự kiến:</span>
+                  <span className="text-lg font-bold text-gray-800">
+                    {stats.currentMonthPayments.totalAmount.toLocaleString('vi-VN')} đ
+                  </span>
+                </div>
+                <div className="w-full bg-gray-200 rounded-full h-3 mt-3">
+                  <div
+                    className="bg-gradient-to-r from-purple-400 to-purple-600 h-3 rounded-full transition-all duration-500"
+                    style={{ width: `${paymentPercentage}%` }}
+                  ></div>
+                </div>
+                <p className="text-center mt-2 text-sm text-gray-600">
+                  {paymentPercentage}% đã thu
+                </p>
+              </div>
+            </div>
+          </div>
 
           {/* Welcome Message */}
           {stats.totalClasses === 0 && (
