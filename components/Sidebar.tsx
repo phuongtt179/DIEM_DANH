@@ -9,6 +9,7 @@ import {
   Users,
   ClipboardList,
   DollarSign,
+  BarChart3,
   ExternalLink,
   Menu,
   X
@@ -20,6 +21,15 @@ const navItems = [
   { href: '/students', icon: Users, label: 'Học sinh' },
   { href: '/attendance', icon: ClipboardList, label: 'Điểm danh' },
   { href: '/payments', icon: DollarSign, label: 'Học phí' },
+  { href: '/statistics', icon: BarChart3, label: 'Thống kê' },
+];
+
+// Mobile bottom navigation - only show 4 items
+const mobileNavItems = [
+  { href: '/', icon: Home, label: 'Tổng quan' },
+  { href: '/attendance', icon: ClipboardList, label: 'Điểm danh' },
+  { href: '/payments', icon: DollarSign, label: 'Học phí' },
+  { href: '/statistics', icon: BarChart3, label: 'Thống kê' },
 ];
 
 export default function Sidebar() {
@@ -111,8 +121,8 @@ export default function Sidebar() {
 
       {/* Mobile Bottom Navigation */}
       <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-30 bg-white border-t border-gray-200 shadow-lg">
-        <div className="grid grid-cols-5 gap-1">
-          {navItems.map((item) => {
+        <div className="grid grid-cols-4 gap-1">
+          {mobileNavItems.map((item) => {
             const Icon = item.icon;
             const isActive = pathname === item.href;
 
