@@ -2,19 +2,38 @@
 
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
-import { ClipboardList } from 'lucide-react';
+import { ClipboardList, Check, X } from 'lucide-react';
 import { format } from 'date-fns';
 
-interface SessionStat {
+interface AttendanceRecord {
+  date: string;
+  status: 'present' | 'absent';
+}
+
+interface StudentAttendance {
+  studentId: string;
   studentName: string;
-  sessions: number;
-  tuition: number;
-  paidDate: string | null;
-  status: 'paid' | 'unpaid';
+  attendance: { [date: string]: 'present' | 'absent' };
+  totalPresent: number;
+  totalAbsent: number;
+  isMultiClass: boolean;
+  otherClasses?: string[];
+}
+
+interface MultiClassAttendance {
+  studentId: string;
+  studentName: string;
+  // Combined attendance from ALL classes with class name
+  attendance: { [date: string]: { status: 'present' | 'absent'; className: string } };
+  dates: string[];
+  totalPresent: number;
+  totalAbsent: number;
 }
 
 export default function StatisticsPage() {
-  const [sessionStats, setSessionStats] = useState<SessionStat[]>([]);
+  const [studentAttendances, setStudentAttendances] = useState<StudentAttendance[]>([]);
+  const [multiClassAttendances, setMultiClassAttendances] = useState<MultiClassAttendance[]>([]);
+  const [classDates, setClassDates] = useState<string[]>([]);
   const [selectedStatClass, setSelectedStatClass] = useState<string>('');
   const [selectedStatMonth, setSelectedStatMonth] = useState<string>(format(new Date(), 'yyyy-MM'));
   const [classes, setClasses] = useState<any[]>([]);
@@ -26,7 +45,7 @@ export default function StatisticsPage() {
 
   useEffect(() => {
     if (selectedStatClass && selectedStatMonth) {
-      loadSessionStats();
+      loadAttendanceStats();
     }
   }, [selectedStatClass, selectedStatMonth]);
 
@@ -47,11 +66,31 @@ export default function StatisticsPage() {
     }
   }
 
-  async function loadSessionStats() {
+  async function loadAttendanceStats() {
     try {
       setLoading(true);
 
-      // Get students in primary class
+      const [year, monthNum] = selectedStatMonth.split('-');
+      const startDate = `${year}-${monthNum}-01`;
+      const lastDay = new Date(parseInt(year), parseInt(monthNum), 0).getDate();
+      const endDate = `${year}-${monthNum}-${String(lastDay).padStart(2, '0')}`;
+
+      // Get all attendance records for this class in this month
+      const { data: attendanceData, error: attError } = await supabase
+        .from('attendance')
+        .select('*')
+        .eq('class_id', selectedStatClass)
+        .gte('date', startDate)
+        .lte('date', endDate)
+        .order('date');
+
+      if (attError) throw attError;
+
+      // Get unique dates when class was held
+      const uniqueDates = [...new Set(attendanceData?.map(a => a.date) || [])].sort();
+      setClassDates(uniqueDates);
+
+      // Get students in this class (primary)
       const { data: studentClassesData, error: scError } = await supabase
         .from('student_classes')
         .select(`
@@ -66,82 +105,149 @@ export default function StatisticsPage() {
 
       if (scError) throw scError;
 
-      // Get class tuition
-      const { data: classData } = await supabase
-        .from('classes')
-        .select('tuition')
-        .eq('id', selectedStatClass)
-        .single();
-
-      // Get payments for this month
-      const { data: paymentsData } = await supabase
-        .from('payments')
-        .select('*')
-        .eq('class_id', selectedStatClass)
-        .eq('month', selectedStatMonth);
-
-      // Calculate sessions for each student
-      const [year, monthNum] = selectedStatMonth.split('-');
-      const startDate = `${year}-${monthNum}-01`;
-      const lastDay = new Date(parseInt(year), parseInt(monthNum), 0).getDate();
-      const endDate = `${year}-${monthNum}-${String(lastDay).padStart(2, '0')}`;
-
-      const stats: SessionStat[] = await Promise.all(
+      // Build attendance map for each student
+      const studentStats: StudentAttendance[] = await Promise.all(
         (studentClassesData || []).map(async (sc: any) => {
           const student = sc.students;
 
-          // Get ALL classes for this student
-          const { data: allClasses } = await supabase
+          // Check if student has other classes
+          const { data: otherClassesData } = await supabase
             .from('student_classes')
-            .select('class_id')
-            .eq('student_id', student.id);
-
-          const classIds = allClasses?.map((c: any) => c.class_id) || [];
-
-          // Count attendance across ALL classes
-          const { data: attendanceData } = await supabase
-            .from('attendance')
-            .select('id')
+            .select(`
+              class_id,
+              classes (
+                id,
+                name
+              )
+            `)
             .eq('student_id', student.id)
-            .in('class_id', classIds)
-            .gte('date', startDate)
-            .lte('date', endDate)
-            .eq('status', 'present');
+            .neq('class_id', selectedStatClass);
 
-          const sessions = attendanceData?.length || 0;
+          const isMultiClass = (otherClassesData?.length || 0) > 0;
+          const otherClasses = otherClassesData?.map((oc: any) => oc.classes.name) || [];
 
-          // Get payment info
-          const payment = paymentsData?.find((p: any) => p.student_id === student.id);
+          // Get attendance for this student in this class
+          const studentAttendance = attendanceData?.filter(a => a.student_id === student.id) || [];
+
+          const attendanceMap: { [date: string]: 'present' | 'absent' } = {};
+          uniqueDates.forEach(date => {
+            const record = studentAttendance.find(a => a.date === date);
+            if (record) {
+              attendanceMap[date] = record.status;
+            }
+          });
+
+          const totalPresent = Object.values(attendanceMap).filter(s => s === 'present').length;
+          const totalAbsent = Object.values(attendanceMap).filter(s => s === 'absent').length;
 
           return {
+            studentId: student.id,
             studentName: student.name,
-            sessions: sessions,
-            tuition: payment?.amount || classData?.tuition || 0,
-            paidDate: payment?.paid_date || null,
-            status: payment?.status || 'unpaid',
+            attendance: attendanceMap,
+            totalPresent,
+            totalAbsent,
+            isMultiClass,
+            otherClasses,
           };
         })
       );
 
-      setSessionStats(stats);
+      setStudentAttendances(studentStats);
+
+      // Load combined attendance from ALL classes for multi-class students
+      const multiClassStudents = studentStats.filter(s => s.isMultiClass);
+      const multiClassData: MultiClassAttendance[] = [];
+
+      // Get selected class name
+      const selectedClass = classes.find(c => c.id === selectedStatClass);
+      const selectedClassName = selectedClass?.name || 'Lớp chính';
+
+      for (const student of multiClassStudents) {
+        const combinedAttendance: { [date: string]: { status: 'present' | 'absent'; className: string } } = {};
+
+        // Add attendance from PRIMARY class (the one we're viewing)
+        for (const date of Object.keys(student.attendance)) {
+          combinedAttendance[date] = {
+            status: student.attendance[date],
+            className: selectedClassName,
+          };
+        }
+
+        // Get ALL classes for this student (including other classes)
+        const { data: allClassesData } = await supabase
+          .from('student_classes')
+          .select(`
+            class_id,
+            classes (
+              id,
+              name
+            )
+          `)
+          .eq('student_id', student.studentId)
+          .neq('class_id', selectedStatClass);
+
+        // Get attendance from other classes
+        for (const oc of allClassesData || []) {
+          const { data: otherAttendance } = await supabase
+            .from('attendance')
+            .select('*')
+            .eq('student_id', student.studentId)
+            .eq('class_id', oc.class_id)
+            .gte('date', startDate)
+            .lte('date', endDate)
+            .order('date');
+
+          if (otherAttendance && otherAttendance.length > 0) {
+            for (const att of otherAttendance) {
+              combinedAttendance[att.date] = {
+                status: att.status,
+                className: (oc as any).classes.name,
+              };
+            }
+          }
+        }
+
+        // Sort all dates
+        const allDates = Object.keys(combinedAttendance).sort();
+        const totalPresent = Object.values(combinedAttendance).filter(a => a.status === 'present').length;
+        const totalAbsent = Object.values(combinedAttendance).filter(a => a.status === 'absent').length;
+
+        if (allDates.length > 0) {
+          multiClassData.push({
+            studentId: student.studentId,
+            studentName: student.studentName,
+            attendance: combinedAttendance,
+            dates: allDates,
+            totalPresent,
+            totalAbsent,
+          });
+        }
+      }
+
+      setMultiClassAttendances(multiClassData);
     } catch (error) {
-      console.error('Error loading session stats:', error);
+      console.error('Error loading attendance stats:', error);
     } finally {
       setLoading(false);
     }
   }
 
+  const formatDateHeader = (dateStr: string) => {
+    const date = new Date(dateStr);
+    return format(date, 'd/M');
+  };
+
   return (
     <div className="p-4 lg:p-8">
       <div className="mb-6 lg:mb-8">
         <h1 className="text-2xl lg:text-3xl font-bold text-gray-800">Thống kê buổi học</h1>
-        <p className="text-sm lg:text-base text-gray-600 mt-1">Theo dõi số buổi học và học phí theo tháng</p>
+        <p className="text-sm lg:text-base text-gray-600 mt-1">Theo dõi điểm danh chi tiết theo tháng</p>
       </div>
 
       <div className="bg-white rounded-lg lg:rounded-xl shadow-md p-4 lg:p-6">
         <h2 className="text-lg lg:text-xl font-bold text-gray-800 mb-3 lg:mb-4 flex items-center gap-2">
           <ClipboardList className="text-blue-500" size={20} />
-          Thống kê chi tiết
+          Bảng điểm danh
         </h2>
 
         {/* Filters */}
@@ -180,49 +286,142 @@ export default function StatisticsPage() {
           </div>
         </div>
 
-        {/* Table */}
+        {/* Main Attendance Table */}
         {loading ? (
           <div className="flex justify-center items-center py-12">
             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
           </div>
-        ) : sessionStats.length > 0 ? (
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead className="bg-gray-50 border-b-2 border-gray-200">
-                <tr>
-                  <th className="px-3 lg:px-6 py-2 lg:py-3 text-left text-xs lg:text-sm font-bold text-gray-700">STT</th>
-                  <th className="px-3 lg:px-6 py-2 lg:py-3 text-left text-xs lg:text-sm font-bold text-gray-700">Tên học sinh</th>
-                  <th className="px-3 lg:px-6 py-2 lg:py-3 text-center text-xs lg:text-sm font-bold text-gray-700">Số buổi học</th>
-                  <th className="px-3 lg:px-6 py-2 lg:py-3 text-right text-xs lg:text-sm font-bold text-gray-700">Học phí</th>
-                  <th className="px-3 lg:px-6 py-2 lg:py-3 text-center text-xs lg:text-sm font-bold text-gray-700">Ngày đóng</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-200">
-                {sessionStats.map((stat, index) => (
-                  <tr key={index} className="hover:bg-gray-50">
-                    <td className="px-3 lg:px-6 py-2 lg:py-3 text-xs lg:text-base text-gray-600">{index + 1}</td>
-                    <td className="px-3 lg:px-6 py-2 lg:py-3 text-xs lg:text-base font-semibold text-gray-800">{stat.studentName}</td>
-                    <td className="px-3 lg:px-6 py-2 lg:py-3 text-xs lg:text-base text-center text-gray-600">{stat.sessions} buổi</td>
-                    <td className="px-3 lg:px-6 py-2 lg:py-3 text-xs lg:text-base text-right font-semibold text-gray-800">
-                      {stat.tuition.toLocaleString('vi-VN')} đ
-                    </td>
-                    <td className="px-3 lg:px-6 py-2 lg:py-3 text-xs lg:text-base text-center">
-                      {stat.paidDate ? (
-                        <span className="text-green-600 font-semibold">
-                          {format(new Date(stat.paidDate), 'dd/MM/yyyy')}
-                        </span>
-                      ) : (
-                        <span className="text-red-600 font-semibold">Chưa đóng</span>
-                      )}
-                    </td>
+        ) : studentAttendances.length > 0 && classDates.length > 0 ? (
+          <>
+            <div className="overflow-x-auto">
+              <table className="w-full border-collapse">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="border border-gray-300 px-2 py-2 text-xs lg:text-sm font-bold text-gray-700 sticky left-0 bg-gray-50 z-10">STT</th>
+                    <th className="border border-gray-300 px-2 py-2 text-xs lg:text-sm font-bold text-gray-700 sticky left-8 bg-gray-50 z-10 min-w-[120px]">Họ và tên</th>
+                    {classDates.map(date => (
+                      <th key={date} className="border border-gray-300 px-1 py-2 text-xs lg:text-sm font-bold text-gray-700 min-w-[45px]">
+                        {formatDateHeader(date)}
+                      </th>
+                    ))}
+                    <th className="border border-gray-300 px-2 py-2 text-xs lg:text-sm font-bold text-gray-700 bg-green-50">Có mặt</th>
+                    <th className="border border-gray-300 px-2 py-2 text-xs lg:text-sm font-bold text-gray-700 bg-red-50">Vắng</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {studentAttendances
+                    .filter(student => !student.isMultiClass) // Only show single-class students
+                    .map((student, index) => (
+                    <tr key={student.studentId} className="hover:bg-gray-50">
+                      <td className="border border-gray-300 px-2 py-2 text-xs lg:text-sm text-center text-gray-600 sticky left-0 bg-white">{index + 1}</td>
+                      <td className="border border-gray-300 px-2 py-2 text-xs lg:text-sm font-semibold text-gray-800 sticky left-8 bg-white">
+                        {student.studentName}
+                      </td>
+                      {classDates.map(date => (
+                        <td key={date} className="border border-gray-300 px-1 py-2 text-center">
+                          {student.attendance[date] === 'present' ? (
+                            <Check className="inline text-green-600" size={18} />
+                          ) : student.attendance[date] === 'absent' ? (
+                            <X className="inline text-red-600" size={18} />
+                          ) : (
+                            <span className="text-gray-300">-</span>
+                          )}
+                        </td>
+                      ))}
+                      <td className="border border-gray-300 px-2 py-2 text-xs lg:text-sm text-center font-bold text-green-600 bg-green-50">
+                        {student.totalPresent}
+                      </td>
+                      <td className="border border-gray-300 px-2 py-2 text-xs lg:text-sm text-center font-bold text-red-600 bg-red-50">
+                        {student.totalAbsent}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Legend */}
+            <div className="mt-4 flex flex-wrap gap-4 text-sm text-gray-600">
+              <div className="flex items-center gap-1">
+                <Check className="text-green-600" size={16} />
+                <span>Có mặt</span>
+              </div>
+              <div className="flex items-center gap-1">
+                <X className="text-red-600" size={16} />
+                <span>Vắng mặt</span>
+              </div>
+            </div>
+
+            {/* Multi-class students section - Combined attendance from ALL classes */}
+            {multiClassAttendances.length > 0 && (
+              <div className="mt-8 pt-6 border-t-2 border-gray-200">
+                <h3 className="text-lg font-bold text-gray-800 mb-4">
+                  Tổng hợp điểm danh (học sinh học nhiều lớp)
+                </h3>
+                <p className="text-sm text-gray-500 mb-4">
+                  Bảng này hiển thị tất cả các buổi học từ mọi lớp của học sinh
+                </p>
+
+                {/* Get all unique dates across all multi-class students */}
+                {(() => {
+                  const allDates = [...new Set(multiClassAttendances.flatMap(s => s.dates))].sort();
+
+                  return (
+                    <div className="overflow-x-auto">
+                      <table className="w-full border-collapse">
+                        <thead className="bg-gray-50">
+                          <tr>
+                            <th className="border border-gray-300 px-2 py-2 text-xs lg:text-sm font-bold text-gray-700">STT</th>
+                            <th className="border border-gray-300 px-2 py-2 text-xs lg:text-sm font-bold text-gray-700 min-w-[120px]">Họ và tên</th>
+                            {allDates.map(date => (
+                              <th key={date} className="border border-gray-300 px-1 py-2 text-xs lg:text-sm font-bold text-gray-700 min-w-[45px]">
+                                {formatDateHeader(date)}
+                              </th>
+                            ))}
+                            <th className="border border-gray-300 px-2 py-2 text-xs lg:text-sm font-bold text-gray-700 bg-green-50">Có mặt</th>
+                            <th className="border border-gray-300 px-2 py-2 text-xs lg:text-sm font-bold text-gray-700 bg-red-50">Vắng</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {multiClassAttendances.map((student, index) => (
+                            <tr key={student.studentId} className="hover:bg-gray-50">
+                              <td className="border border-gray-300 px-2 py-2 text-xs lg:text-sm text-center text-gray-600">{index + 1}</td>
+                              <td className="border border-gray-300 px-2 py-2 text-xs lg:text-sm font-semibold text-gray-800">
+                                {student.studentName}
+                              </td>
+                              {allDates.map(date => {
+                                const att = student.attendance[date];
+                                return (
+                                  <td key={date} className="border border-gray-300 px-1 py-2 text-center" title={att?.className}>
+                                    {att?.status === 'present' ? (
+                                      <Check className="inline text-green-600" size={18} />
+                                    ) : att?.status === 'absent' ? (
+                                      <X className="inline text-red-600" size={18} />
+                                    ) : (
+                                      <span className="text-gray-300">-</span>
+                                    )}
+                                  </td>
+                                );
+                              })}
+                              <td className="border border-gray-300 px-2 py-2 text-xs lg:text-sm text-center font-bold text-green-600 bg-green-50">
+                                {student.totalPresent}
+                              </td>
+                              <td className="border border-gray-300 px-2 py-2 text-xs lg:text-sm text-center font-bold text-red-600 bg-red-50">
+                                {student.totalAbsent}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  );
+                })()}
+              </div>
+            )}
+          </>
         ) : (
           <div className="text-center py-12 text-gray-500">
-            {classes.length === 0 ? 'Chưa có lớp học' : 'Không có dữ liệu'}
+            {classes.length === 0 ? 'Chưa có lớp học' : classDates.length === 0 ? 'Chưa có buổi học nào trong tháng này' : 'Không có dữ liệu'}
           </div>
         )}
       </div>

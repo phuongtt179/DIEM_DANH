@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { supabase, Student, Class, Attendance } from '@/lib/supabase';
-import { Save } from 'lucide-react';
+import { Save, Trash2 } from 'lucide-react';
 import { format } from 'date-fns';
 
 interface AttendanceRecord {
@@ -19,6 +19,8 @@ export default function AttendancePage() {
   const [attendanceRecords, setAttendanceRecords] = useState<AttendanceRecord[]>([]);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [hasExistingAttendance, setHasExistingAttendance] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     loadClasses();
@@ -74,6 +76,9 @@ export default function AttendancePage() {
         .eq('date', selectedDate);
 
       if (attendanceError) throw attendanceError;
+
+      // Check if there's existing attendance for this date
+      setHasExistingAttendance((existingAttendance?.length || 0) > 0);
 
       // Create attendance records array
       const records: AttendanceRecord[] = (studentClassesData || []).map((sc: any) => {
@@ -141,11 +146,47 @@ export default function AttendancePage() {
       }
 
       alert('Lưu điểm danh thành công!');
+      setHasExistingAttendance(true);
     } catch (error) {
       console.error('Error saving attendance:', error);
       alert('Lỗi khi lưu điểm danh');
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function handleDeleteAttendance() {
+    if (!selectedClassId || !selectedDate) return;
+
+    const confirmDelete = window.confirm(
+      `Bạn có chắc muốn XÓA toàn bộ điểm danh ngày ${format(new Date(selectedDate), 'dd/MM/yyyy')}?\n\nHành động này không thể hoàn tác!`
+    );
+
+    if (!confirmDelete) return;
+
+    try {
+      setDeleting(true);
+
+      const { error } = await supabase
+        .from('attendance')
+        .delete()
+        .eq('class_id', selectedClassId)
+        .eq('date', selectedDate);
+
+      if (error) throw error;
+
+      // Reset attendance records to default (all present)
+      setAttendanceRecords(records =>
+        records.map(r => ({ ...r, isAbsent: false, note: '' }))
+      );
+      setHasExistingAttendance(false);
+
+      alert('Đã xóa điểm danh thành công!');
+    } catch (error) {
+      console.error('Error deleting attendance:', error);
+      alert('Lỗi khi xóa điểm danh');
+    } finally {
+      setDeleting(false);
     }
   }
 
@@ -208,15 +249,26 @@ export default function AttendancePage() {
             />
           </div>
 
-          <div className="flex items-end">
+          <div className="flex items-end gap-2">
             <button
               onClick={handleSave}
               disabled={saving || !selectedClassId || attendanceRecords.length === 0}
-              className="w-full flex items-center justify-center gap-2 px-4 lg:px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-semibold disabled:bg-gray-300 disabled:cursor-not-allowed text-sm lg:text-base"
+              className="flex-1 flex items-center justify-center gap-2 px-4 lg:px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-semibold disabled:bg-gray-300 disabled:cursor-not-allowed text-sm lg:text-base"
             >
               <Save size={18} className="lg:w-5 lg:h-5" />
-              {saving ? 'Đang lưu...' : 'Lưu điểm danh'}
+              {saving ? 'Đang lưu...' : 'Lưu'}
             </button>
+            {hasExistingAttendance && (
+              <button
+                onClick={handleDeleteAttendance}
+                disabled={deleting}
+                className="flex items-center justify-center gap-2 px-4 lg:px-6 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors font-semibold disabled:bg-gray-300 disabled:cursor-not-allowed text-sm lg:text-base"
+                title="Xóa điểm danh ngày này"
+              >
+                <Trash2 size={18} className="lg:w-5 lg:h-5" />
+                {deleting ? '...' : 'Xóa'}
+              </button>
+            )}
           </div>
         </div>
       </div>
