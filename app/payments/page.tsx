@@ -574,21 +574,41 @@ export default function PaymentsPage() {
                 />
               </div>
 
-              <div className="flex gap-3 pt-4">
-                <button
-                  type="button"
-                  onClick={closeModal}
-                  className="flex-1 px-4 lg:px-6 py-2 lg:py-3 border-2 border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors font-semibold text-sm lg:text-base"
-                >
-                  Hủy
-                </button>
-                <button
-                  type="submit"
-                  disabled={saving}
-                  className="flex-1 px-4 lg:px-6 py-2 lg:py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-semibold disabled:bg-gray-300 text-sm lg:text-base"
-                >
-                  {saving ? 'Đang lưu...' : 'Xác nhận'}
-                </button>
+              <div className="flex flex-col gap-3 pt-4">
+                {editingPayment.status === 'paid' && (
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      const confirm = window.confirm(
+                        `Bạn có chắc muốn đánh dấu "${editingPayment.studentName}" là CHƯA ĐÓNG học phí?`
+                      );
+                      if (confirm) {
+                        await markAsUnpaid(editingPayment.studentId);
+                        closeModal();
+                      }
+                    }}
+                    disabled={saving}
+                    className="w-full px-4 lg:px-6 py-2 lg:py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors font-semibold disabled:bg-gray-300 text-sm lg:text-base"
+                  >
+                    Đánh dấu chưa đóng
+                  </button>
+                )}
+                <div className="flex gap-3">
+                  <button
+                    type="button"
+                    onClick={closeModal}
+                    className="flex-1 px-4 lg:px-6 py-2 lg:py-3 border-2 border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors font-semibold text-sm lg:text-base"
+                  >
+                    Hủy
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={saving}
+                    className="flex-1 px-4 lg:px-6 py-2 lg:py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-semibold disabled:bg-gray-300 text-sm lg:text-base"
+                  >
+                    {saving ? 'Đang lưu...' : 'Xác nhận'}
+                  </button>
+                </div>
               </div>
             </form>
           </div>
