@@ -14,6 +14,7 @@ interface PaymentRecord {
   allClassesNames?: string[]; // List of all classes for this student
   status: 'paid' | 'unpaid';
   paidDate: string | null;
+  note: string | null;
 }
 
 export default function PaymentsPage() {
@@ -30,6 +31,7 @@ export default function PaymentsPage() {
     amount: '',
     sessions: '',
     paidDate: format(new Date(), 'yyyy-MM-dd'),
+    note: '',
   });
 
   // Helper function to calculate sessions from attendance across ALL classes
@@ -170,6 +172,7 @@ export default function PaymentsPage() {
             allClassesNames: classNames, // All classes contributing to sessions
             status: existing?.status || 'unpaid',
             paidDate: existing?.paid_date || null,
+            note: existing?.note || null,
           };
         })
       );
@@ -192,6 +195,7 @@ export default function PaymentsPage() {
       amount: record.amount.toString(),
       sessions: (record.calculatedSessions || 0).toString(),
       paidDate: record.paidDate || format(new Date(), 'yyyy-MM-dd'),
+      note: record.note || '',
     });
     setShowModal(true);
   }
@@ -203,6 +207,7 @@ export default function PaymentsPage() {
       amount: '',
       sessions: '',
       paidDate: format(new Date(), 'yyyy-MM-dd'),
+      note: '',
     });
   }
 
@@ -229,6 +234,7 @@ export default function PaymentsPage() {
             amount: parseFloat(paymentForm.amount),
             sessions: parseInt(paymentForm.sessions),
             paid_date: paymentForm.paidDate,
+            note: paymentForm.note || null,
           })
           .eq('id', existing.id);
       } else {
@@ -242,6 +248,7 @@ export default function PaymentsPage() {
             sessions: parseInt(paymentForm.sessions),
             paid_date: paymentForm.paidDate,
             status: 'paid',
+            note: paymentForm.note || null,
           }]);
       }
 
@@ -253,7 +260,8 @@ export default function PaymentsPage() {
                 status: 'paid',
                 amount: parseFloat(paymentForm.amount),
                 sessions: parseInt(paymentForm.sessions),
-                paidDate: paymentForm.paidDate
+                paidDate: paymentForm.paidDate,
+                note: paymentForm.note || null,
               }
             : r
         )
@@ -571,6 +579,19 @@ export default function PaymentsPage() {
                   value={paymentForm.paidDate}
                   onChange={(e) => setPaymentForm({ ...paymentForm, paidDate: e.target.value })}
                   className="w-full max-w-full min-w-0 px-3 lg:px-4 py-2 border-2 border-gray-300 rounded-lg focus:border-blue-500 focus:outline-none text-sm lg:text-base"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                  Ghi chú
+                </label>
+                <textarea
+                  value={paymentForm.note}
+                  onChange={(e) => setPaymentForm({ ...paymentForm, note: e.target.value })}
+                  className="w-full px-3 lg:px-4 py-2 border-2 border-gray-300 rounded-lg focus:border-blue-500 focus:outline-none text-sm lg:text-base"
+                  placeholder="VD: Nộp CK TK1, Tiền mặt..."
+                  rows={2}
                 />
               </div>
 

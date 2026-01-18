@@ -32,6 +32,13 @@ interface TodayPayment {
   amount: number;
 }
 
+interface DebtRecord {
+  studentName: string;
+  className: string;
+  month: string;
+  amount: number;
+}
+
 export default function DashboardPage() {
   const [stats, setStats] = useState<Stats>({
     totalClasses: 0,
@@ -42,10 +49,12 @@ export default function DashboardPage() {
   });
   const [loading, setLoading] = useState(true);
   const [todayPayments, setTodayPayments] = useState<TodayPayment[]>([]);
+  const [debtRecords, setDebtRecords] = useState<DebtRecord[]>([]);
 
   useEffect(() => {
     loadStats();
     loadTodayPayments();
+    loadDebtRecords();
   }, []);
 
   async function loadStats() {
@@ -153,6 +162,43 @@ export default function DashboardPage() {
       setTodayPayments(payments);
     } catch (error) {
       console.error('Error loading today payments:', error);
+    }
+  }
+
+  async function loadDebtRecords() {
+    try {
+      const currentMonth = format(new Date(), 'yyyy-MM');
+
+      // Get all unpaid payments from previous months (starting from 2026-01)
+      const { data, error } = await supabase
+        .from('payments')
+        .select(`
+          month,
+          amount,
+          students (
+            name
+          ),
+          classes (
+            name
+          )
+        `)
+        .eq('status', 'unpaid')
+        .gte('month', '2026-01')
+        .lt('month', currentMonth)
+        .order('month', { ascending: false });
+
+      if (error) throw error;
+
+      const debts: DebtRecord[] = (data || []).map((p: any) => ({
+        studentName: p.students?.name || 'N/A',
+        className: p.classes?.name || 'N/A',
+        month: p.month,
+        amount: p.amount,
+      }));
+
+      setDebtRecords(debts);
+    } catch (error) {
+      console.error('Error loading debt records:', error);
     }
   }
 
@@ -314,6 +360,54 @@ export default function DashboardPage() {
               </div>
             </div>
           </div>
+
+          {/* Debt Records - Students with unpaid fees from previous months */}
+          {debtRecords.length > 0 && (
+            <div className="bg-white rounded-lg lg:rounded-xl shadow-md p-4 lg:p-6 mb-6 lg:mb-8 border-l-4 border-red-500">
+              <h2 className="text-lg lg:text-xl font-bold text-gray-800 mb-3 lg:mb-4 flex items-center gap-2">
+                <TrendingDown className="text-red-500" size={20} />
+                Nợ học phí ({debtRecords.length})
+              </h2>
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead className="bg-red-50 border-b-2 border-red-200">
+                    <tr>
+                      <th className="px-3 lg:px-6 py-2 lg:py-3 text-left text-xs lg:text-sm font-bold text-gray-700">STT</th>
+                      <th className="px-3 lg:px-6 py-2 lg:py-3 text-left text-xs lg:text-sm font-bold text-gray-700">Tên học sinh</th>
+                      <th className="px-3 lg:px-6 py-2 lg:py-3 text-left text-xs lg:text-sm font-bold text-gray-700">Lớp</th>
+                      <th className="px-3 lg:px-6 py-2 lg:py-3 text-center text-xs lg:text-sm font-bold text-gray-700">Tháng</th>
+                      <th className="px-3 lg:px-6 py-2 lg:py-3 text-right text-xs lg:text-sm font-bold text-gray-700">Số tiền</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-200">
+                    {debtRecords.map((debt, index) => (
+                      <tr key={index} className="hover:bg-red-50">
+                        <td className="px-3 lg:px-6 py-2 lg:py-3 text-xs lg:text-base text-gray-600">{index + 1}</td>
+                        <td className="px-3 lg:px-6 py-2 lg:py-3 text-xs lg:text-base font-semibold text-gray-800">{debt.studentName}</td>
+                        <td className="px-3 lg:px-6 py-2 lg:py-3 text-xs lg:text-base text-gray-600">{debt.className}</td>
+                        <td className="px-3 lg:px-6 py-2 lg:py-3 text-xs lg:text-base text-center text-gray-600">
+                          {debt.month.split('-')[1]}/{debt.month.split('-')[0]}
+                        </td>
+                        <td className="px-3 lg:px-6 py-2 lg:py-3 text-xs lg:text-base text-right font-semibold text-red-600">
+                          {debt.amount.toLocaleString('vi-VN')} đ
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot className="bg-red-50 border-t-2 border-red-200">
+                    <tr>
+                      <td colSpan={4} className="px-3 lg:px-6 py-2 lg:py-3 text-xs lg:text-sm font-bold text-gray-700 text-right">
+                        Tổng nợ:
+                      </td>
+                      <td className="px-3 lg:px-6 py-2 lg:py-3 text-right font-bold text-red-600">
+                        {debtRecords.reduce((sum, d) => sum + d.amount, 0).toLocaleString('vi-VN')} đ
+                      </td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            </div>
+          )}
 
           {/* Welcome Message */}
           {stats.totalClasses === 0 && (
