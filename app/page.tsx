@@ -39,6 +39,12 @@ interface DebtRecord {
   amount: number;
 }
 
+interface YearlyRevenue {
+  year: string;
+  totalAmount: number;
+  monthlyBreakdown: { month: string; amount: number }[];
+}
+
 export default function DashboardPage() {
   const [stats, setStats] = useState<Stats>({
     totalClasses: 0,
@@ -50,11 +56,13 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [todayPayments, setTodayPayments] = useState<TodayPayment[]>([]);
   const [debtRecords, setDebtRecords] = useState<DebtRecord[]>([]);
+  const [yearlyRevenue, setYearlyRevenue] = useState<YearlyRevenue[]>([]);
 
   useEffect(() => {
     loadStats();
     loadTodayPayments();
     loadDebtRecords();
+    loadYearlyRevenue();
   }, []);
 
   async function loadStats() {
@@ -199,6 +207,52 @@ export default function DashboardPage() {
       setDebtRecords(debts);
     } catch (error) {
       console.error('Error loading debt records:', error);
+    }
+  }
+
+  async function loadYearlyRevenue() {
+    try {
+      // Get all paid payments from 2026 onwards
+      const { data, error } = await supabase
+        .from('payments')
+        .select('month, amount')
+        .eq('status', 'paid')
+        .gte('month', '2026-01')
+        .order('month', { ascending: true });
+
+      if (error) throw error;
+
+      // Group by year
+      const yearlyMap: { [year: string]: { total: number; months: { [month: string]: number } } } = {};
+
+      (data || []).forEach((p: any) => {
+        const year = p.month.split('-')[0];
+        const month = p.month;
+
+        if (!yearlyMap[year]) {
+          yearlyMap[year] = { total: 0, months: {} };
+        }
+
+        yearlyMap[year].total += p.amount;
+
+        if (!yearlyMap[year].months[month]) {
+          yearlyMap[year].months[month] = 0;
+        }
+        yearlyMap[year].months[month] += p.amount;
+      });
+
+      // Convert to array
+      const revenues: YearlyRevenue[] = Object.entries(yearlyMap).map(([year, data]) => ({
+        year,
+        totalAmount: data.total,
+        monthlyBreakdown: Object.entries(data.months)
+          .map(([month, amount]) => ({ month, amount }))
+          .sort((a, b) => a.month.localeCompare(b.month)),
+      })).sort((a, b) => b.year.localeCompare(a.year)); // Newest year first
+
+      setYearlyRevenue(revenues);
+    } catch (error) {
+      console.error('Error loading yearly revenue:', error);
     }
   }
 
@@ -360,6 +414,38 @@ export default function DashboardPage() {
               </div>
             </div>
           </div>
+
+          {/* Yearly Revenue */}
+          {yearlyRevenue.length > 0 && (
+            <div className="bg-white rounded-lg lg:rounded-xl shadow-md p-4 lg:p-6 mb-6 lg:mb-8 border-l-4 border-green-500">
+              <h2 className="text-lg lg:text-xl font-bold text-gray-800 mb-3 lg:mb-4 flex items-center gap-2">
+                <TrendingUp className="text-green-500" size={20} />
+                Tổng doanh thu theo năm
+              </h2>
+              <div className="space-y-4">
+                {yearlyRevenue.map((yearData) => (
+                  <div key={yearData.year} className="border rounded-lg p-4">
+                    <div className="flex justify-between items-center mb-3">
+                      <span className="text-lg font-bold text-gray-800">Năm {yearData.year}</span>
+                      <span className="text-xl font-bold text-green-600">
+                        {yearData.totalAmount.toLocaleString('vi-VN')} đ
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-3 lg:grid-cols-6 gap-2">
+                      {yearData.monthlyBreakdown.map((m) => (
+                        <div key={m.month} className="bg-green-50 rounded p-2 text-center">
+                          <p className="text-xs text-gray-600">T{m.month.split('-')[1]}</p>
+                          <p className="text-sm font-semibold text-green-600">
+                            {(m.amount / 1000000).toFixed(1)}tr
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Debt Records - Students with unpaid fees from previous months */}
           {debtRecords.length > 0 && (
