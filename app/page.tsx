@@ -43,6 +43,7 @@ interface YearlyRevenue {
   year: string;
   totalAmount: number;
   monthlyBreakdown: { month: string; amount: number }[];
+  quarterlyBreakdown: { quarter: string; amount: number }[];
 }
 
 export default function DashboardPage() {
@@ -223,14 +224,16 @@ export default function DashboardPage() {
       if (error) throw error;
 
       // Group by year
-      const yearlyMap: { [year: string]: { total: number; months: { [month: string]: number } } } = {};
+      const yearlyMap: { [year: string]: { total: number; months: { [month: string]: number }; quarters: { [q: string]: number } } } = {};
 
       (data || []).forEach((p: any) => {
         const year = p.month.split('-')[0];
         const month = p.month;
+        const monthNum = parseInt(p.month.split('-')[1]);
+        const quarter = `Q${Math.ceil(monthNum / 3)}`;
 
         if (!yearlyMap[year]) {
-          yearlyMap[year] = { total: 0, months: {} };
+          yearlyMap[year] = { total: 0, months: {}, quarters: {} };
         }
 
         yearlyMap[year].total += p.amount;
@@ -239,6 +242,11 @@ export default function DashboardPage() {
           yearlyMap[year].months[month] = 0;
         }
         yearlyMap[year].months[month] += p.amount;
+
+        if (!yearlyMap[year].quarters[quarter]) {
+          yearlyMap[year].quarters[quarter] = 0;
+        }
+        yearlyMap[year].quarters[quarter] += p.amount;
       });
 
       // Convert to array
@@ -248,6 +256,8 @@ export default function DashboardPage() {
         monthlyBreakdown: Object.entries(data.months)
           .map(([month, amount]) => ({ month, amount }))
           .sort((a, b) => a.month.localeCompare(b.month)),
+        quarterlyBreakdown: ['Q1', 'Q2', 'Q3', 'Q4']
+          .map(q => ({ quarter: q, amount: data.quarters[q] || 0 })),
       })).sort((a, b) => b.year.localeCompare(a.year)); // Newest year first
 
       setYearlyRevenue(revenues);
@@ -431,6 +441,20 @@ export default function DashboardPage() {
                         {yearData.totalAmount.toLocaleString('vi-VN')} đ
                       </span>
                     </div>
+
+                    {/* Quarterly breakdown */}
+                    <div className="grid grid-cols-4 gap-2 mb-3">
+                      {yearData.quarterlyBreakdown.map((q) => (
+                        <div key={q.quarter} className="bg-blue-50 border border-blue-200 rounded p-2 text-center">
+                          <p className="text-xs font-semibold text-blue-600">{q.quarter}</p>
+                          <p className="text-sm font-bold text-blue-700">
+                            {q.amount > 0 ? `${(q.amount / 1000000).toFixed(1)}tr` : '-'}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Monthly breakdown */}
                     <div className="grid grid-cols-3 lg:grid-cols-6 gap-2">
                       {yearData.monthlyBreakdown.map((m) => (
                         <div key={m.month} className="bg-green-50 rounded p-2 text-center">
