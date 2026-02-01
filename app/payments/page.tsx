@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { supabase, Student, Class, Payment } from '@/lib/supabase';
 import { X } from 'lucide-react';
 import { format } from 'date-fns';
@@ -18,9 +19,14 @@ interface PaymentRecord {
 }
 
 export default function PaymentsPage() {
+  const searchParams = useSearchParams();
+  const urlClassId = searchParams.get('classId');
+  const urlMonth = searchParams.get('month');
+  const urlStudentId = searchParams.get('studentId');
+
   const [classes, setClasses] = useState<Class[]>([]);
   const [selectedClassId, setSelectedClassId] = useState<string>('');
-  const [selectedMonth, setSelectedMonth] = useState<string>(format(new Date(), 'yyyy-MM'));
+  const [selectedMonth, setSelectedMonth] = useState<string>(urlMonth || format(new Date(), 'yyyy-MM'));
   const [paymentRecords, setPaymentRecords] = useState<PaymentRecord[]>([]);
   const [filterStatus, setFilterStatus] = useState<'all' | 'paid' | 'unpaid'>('all');
   const [loading, setLoading] = useState(false);
@@ -99,6 +105,18 @@ export default function PaymentsPage() {
     }
   }, [selectedClassId, selectedMonth]);
 
+  // Auto-open modal if studentId is provided in URL (only if student hasn't paid yet)
+  const [autoOpenDone, setAutoOpenDone] = useState(false);
+  useEffect(() => {
+    if (urlStudentId && paymentRecords.length > 0 && !showModal && !autoOpenDone) {
+      const record = paymentRecords.find(r => r.studentId === urlStudentId);
+      if (record && record.status === 'unpaid') {
+        openPaymentModal(urlStudentId);
+      }
+      setAutoOpenDone(true);
+    }
+  }, [urlStudentId, paymentRecords, autoOpenDone]);
+
   async function loadClasses() {
     try {
       const { data, error } = await supabase
@@ -109,7 +127,12 @@ export default function PaymentsPage() {
       if (error) throw error;
       setClasses(data || []);
       if (data && data.length > 0) {
-        setSelectedClassId(data[0].id);
+        // Use URL classId if provided, otherwise use first class
+        if (urlClassId && data.some(c => c.id === urlClassId)) {
+          setSelectedClassId(urlClassId);
+        } else {
+          setSelectedClassId(data[0].id);
+        }
       }
     } catch (error) {
       console.error('Error loading classes:', error);
