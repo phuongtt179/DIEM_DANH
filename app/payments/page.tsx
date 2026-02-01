@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { supabase, Student, Class, Payment } from '@/lib/supabase';
 import { X } from 'lucide-react';
@@ -19,6 +19,18 @@ interface PaymentRecord {
 }
 
 export default function PaymentsPage() {
+  return (
+    <Suspense fallback={
+      <div className="p-4 lg:p-8 flex justify-center items-center py-12">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+      </div>
+    }>
+      <PaymentsContent />
+    </Suspense>
+  );
+}
+
+function PaymentsContent() {
   const searchParams = useSearchParams();
   const urlClassId = searchParams.get('classId');
   const urlMonth = searchParams.get('month');
