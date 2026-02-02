@@ -2,8 +2,10 @@
 
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
-import { ClipboardList, Check, X } from 'lucide-react';
+import { ClipboardList, Check, X, DollarSign } from 'lucide-react';
 import { format } from 'date-fns';
+import { useAuth } from '@/contexts/AuthContext';
+import { useRouter } from 'next/navigation';
 
 interface AttendanceRecord {
   date: string;
@@ -30,7 +32,17 @@ interface MultiClassAttendance {
   totalAbsent: number;
 }
 
+interface TuitionByClass {
+  classId: string;
+  className: string;
+  monthlyData: { [month: string]: number };
+  total: number;
+}
+
 export default function StatisticsPage() {
+  const { user, hasPermission } = useAuth();
+  const router = useRouter();
+  const [activeTab, setActiveTab] = useState<'attendance' | 'tuition'>('attendance');
   const [studentAttendances, setStudentAttendances] = useState<StudentAttendance[]>([]);
   const [multiClassAttendances, setMultiClassAttendances] = useState<MultiClassAttendance[]>([]);
   const [classDates, setClassDates] = useState<string[]>([]);
@@ -39,9 +51,29 @@ export default function StatisticsPage() {
   const [classes, setClasses] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
 
+  // Tuition statistics state
+  const [tuitionStats, setTuitionStats] = useState<TuitionByClass[]>([]);
+  const [tuitionMonths, setTuitionMonths] = useState<string[]>([]);
+  const [loadingTuition, setLoadingTuition] = useState(false);
+
+  // Check permission
   useEffect(() => {
-    loadClasses();
-  }, []);
+    if (!hasPermission('view_statistics')) {
+      router.push('/');
+    }
+  }, [hasPermission, router]);
+
+  useEffect(() => {
+    if (user) {
+      loadClasses();
+    }
+  }, [user]);
+
+  useEffect(() => {
+    if (activeTab === 'tuition') {
+      loadTuitionStats();
+    }
+  }, [activeTab]);
 
   useEffect(() => {
     if (selectedStatClass && selectedStatMonth) {
@@ -51,15 +83,32 @@ export default function StatisticsPage() {
 
   async function loadClasses() {
     try {
-      const { data, error } = await supabase
-        .from('classes')
-        .select('*')
-        .order('name');
+      // For teachers, only load their assigned classes
+      if (user?.role === 'teacher') {
+        const { data: teacherClasses, error: tcError } = await supabase
+          .from('teacher_classes')
+          .select('class_id, classes(*)')
+          .eq('user_id', user.id);
 
-      if (error) throw error;
-      setClasses(data || []);
-      if (data && data.length > 0) {
-        setSelectedStatClass(data[0].id);
+        if (tcError) throw tcError;
+
+        const assignedClasses = (teacherClasses || []).map((tc: any) => tc.classes);
+        setClasses(assignedClasses);
+        if (assignedClasses.length > 0) {
+          setSelectedStatClass(assignedClasses[0].id);
+        }
+      } else {
+        // Admin and treasurer can see all classes
+        const { data, error } = await supabase
+          .from('classes')
+          .select('*')
+          .order('name');
+
+        if (error) throw error;
+        setClasses(data || []);
+        if (data && data.length > 0) {
+          setSelectedStatClass(data[0].id);
+        }
       }
     } catch (error) {
       console.error('Error loading classes:', error);
@@ -232,18 +281,211 @@ export default function StatisticsPage() {
     }
   }
 
+  async function loadTuitionStats() {
+    try {
+      setLoadingTuition(true);
+
+      // Generate months from 2026-01 to current month
+      const currentMonth = format(new Date(), 'yyyy-MM');
+      const startMonth = '2026-01';
+      const months: string[] = [];
+      let checkMonth = startMonth;
+      while (checkMonth <= currentMonth) {
+        months.push(checkMonth);
+        const [year, month] = checkMonth.split('-').map(Number);
+        const nextDate = new Date(year, month, 1);
+        checkMonth = format(nextDate, 'yyyy-MM');
+      }
+      setTuitionMonths(months);
+
+      // Get all classes
+      const { data: classesData, error: classesError } = await supabase
+        .from('classes')
+        .select('id, name')
+        .order('name');
+
+      if (classesError) throw classesError;
+
+      // Get all paid payments from 2026-01
+      const { data: paymentsData, error: paymentsError } = await supabase
+        .from('payments')
+        .select('class_id, month, amount')
+        .eq('status', 'paid')
+        .gte('month', startMonth)
+        .lte('month', currentMonth);
+
+      if (paymentsError) throw paymentsError;
+
+      // Build tuition data by class
+      const tuitionData: TuitionByClass[] = (classesData || []).map((classItem: any) => {
+        const monthlyData: { [month: string]: number } = {};
+        let total = 0;
+
+        // Initialize all months with 0
+        months.forEach(month => {
+          monthlyData[month] = 0;
+        });
+
+        // Sum payments for this class
+        (paymentsData || [])
+          .filter((p: any) => p.class_id === classItem.id)
+          .forEach((p: any) => {
+            if (monthlyData[p.month] !== undefined) {
+              monthlyData[p.month] += p.amount;
+              total += p.amount;
+            }
+          });
+
+        return {
+          classId: classItem.id,
+          className: classItem.name,
+          monthlyData,
+          total,
+        };
+      });
+
+      setTuitionStats(tuitionData);
+    } catch (error) {
+      console.error('Error loading tuition stats:', error);
+    } finally {
+      setLoadingTuition(false);
+    }
+  }
+
   const formatDateHeader = (dateStr: string) => {
     const date = new Date(dateStr);
     return format(date, 'd/M');
   };
 
+  // Calculate column totals for tuition stats
+  const tuitionColumnTotals = tuitionMonths.reduce((acc, month) => {
+    acc[month] = tuitionStats.reduce((sum, row) => sum + row.monthlyData[month], 0);
+    return acc;
+  }, {} as { [month: string]: number });
+  const tuitionGrandTotal = tuitionStats.reduce((sum, row) => sum + row.total, 0);
+
   return (
     <div className="p-4 lg:p-8">
       <div className="mb-6 lg:mb-8">
-        <h1 className="text-2xl lg:text-3xl font-bold text-gray-800">Thống kê buổi học</h1>
-        <p className="text-sm lg:text-base text-gray-600 mt-1">Theo dõi điểm danh chi tiết theo tháng</p>
+        <h1 className="text-2xl lg:text-3xl font-bold text-gray-800">Thống kê</h1>
+        <p className="text-sm lg:text-base text-gray-600 mt-1">Theo dõi điểm danh và học phí</p>
       </div>
 
+      {/* Tabs - Hide tuition tab for teachers */}
+      {user?.role !== 'teacher' ? (
+      <div className="flex border-b border-gray-200 mb-6">
+        <button
+          onClick={() => setActiveTab('attendance')}
+          className={`flex items-center gap-2 px-4 lg:px-6 py-2 lg:py-3 font-semibold text-sm lg:text-base transition-colors ${
+            activeTab === 'attendance'
+              ? 'text-blue-600 border-b-2 border-blue-600'
+              : 'text-gray-500 hover:text-gray-700'
+          }`}
+        >
+          <ClipboardList size={18} />
+          Điểm danh
+        </button>
+        <button
+          onClick={() => setActiveTab('tuition')}
+          className={`flex items-center gap-2 px-4 lg:px-6 py-2 lg:py-3 font-semibold text-sm lg:text-base transition-colors ${
+            activeTab === 'tuition'
+              ? 'text-green-600 border-b-2 border-green-600'
+              : 'text-gray-500 hover:text-gray-700'
+          }`}
+        >
+          <DollarSign size={18} />
+          Học phí
+        </button>
+      </div>
+      ) : null}
+
+      {/* Tuition Statistics Tab */}
+      {activeTab === 'tuition' && (
+        <div className="bg-white rounded-lg lg:rounded-xl shadow-md p-4 lg:p-6">
+          <h2 className="text-lg lg:text-xl font-bold text-gray-800 mb-3 lg:mb-4 flex items-center gap-2">
+            <DollarSign className="text-green-500" size={20} />
+            Thống kê học phí theo lớp
+          </h2>
+
+          {loadingTuition ? (
+            <div className="flex justify-center items-center py-12">
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-green-600"></div>
+            </div>
+          ) : tuitionStats.length > 0 && tuitionMonths.length > 0 ? (
+            <div className="overflow-x-auto">
+              <table className="w-full border-collapse">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="border border-gray-300 px-2 py-2 text-xs lg:text-sm font-bold text-gray-700 sticky left-0 bg-gray-50 z-10">STT</th>
+                    <th className="border border-gray-300 px-2 py-2 text-xs lg:text-sm font-bold text-gray-700 sticky left-8 bg-gray-50 z-10 min-w-[120px]">Lớp</th>
+                    {tuitionMonths.map(month => (
+                      <th key={month} className="border border-gray-300 px-2 py-2 text-xs lg:text-sm font-bold text-gray-700 min-w-[90px]">
+                        T{month.split('-')[1]}/{month.split('-')[0].slice(2)}
+                      </th>
+                    ))}
+                    <th className="border border-gray-300 px-2 py-2 text-xs lg:text-sm font-bold text-gray-700 bg-green-50 min-w-[100px]">Tổng</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {tuitionStats.map((row, index) => (
+                    <tr key={row.classId} className="hover:bg-gray-50">
+                      <td className="border border-gray-300 px-2 py-2 text-xs lg:text-sm text-center text-gray-600 sticky left-0 bg-white">{index + 1}</td>
+                      <td className="border border-gray-300 px-2 py-2 text-xs lg:text-sm font-semibold text-gray-800 sticky left-8 bg-white">
+                        {row.className}
+                      </td>
+                      {tuitionMonths.map(month => (
+                        <td key={month} className="border border-gray-300 px-2 py-2 text-xs lg:text-sm text-right">
+                          {row.monthlyData[month] > 0 ? (
+                            <span className="text-green-600 font-semibold">
+                              {(row.monthlyData[month] / 1000000).toFixed(1)}tr
+                            </span>
+                          ) : (
+                            <span className="text-gray-300">-</span>
+                          )}
+                        </td>
+                      ))}
+                      <td className="border border-gray-300 px-2 py-2 text-xs lg:text-sm text-right font-bold text-green-600 bg-green-50">
+                        {row.total > 0 ? `${(row.total / 1000000).toFixed(1)}tr` : '-'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot className="bg-gray-100 border-t-2 border-gray-300">
+                  <tr>
+                    <td colSpan={2} className="border border-gray-300 px-2 py-2 text-xs lg:text-sm font-bold text-gray-700 sticky left-0 bg-gray-100 text-right">
+                      Tổng cộng
+                    </td>
+                    {tuitionMonths.map(month => (
+                      <td key={month} className="border border-gray-300 px-2 py-2 text-xs lg:text-sm text-right font-bold text-blue-600">
+                        {tuitionColumnTotals[month] > 0 ? `${(tuitionColumnTotals[month] / 1000000).toFixed(1)}tr` : '-'}
+                      </td>
+                    ))}
+                    <td className="border border-gray-300 px-2 py-2 text-xs lg:text-sm text-right font-bold text-green-700 bg-green-100">
+                      {tuitionGrandTotal > 0 ? `${(tuitionGrandTotal / 1000000).toFixed(1)}tr` : '-'}
+                    </td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          ) : (
+            <div className="text-center py-12 text-gray-500">
+              Chưa có dữ liệu học phí
+            </div>
+          )}
+
+          {/* Full amount display */}
+          {tuitionGrandTotal > 0 && (
+            <div className="mt-4 p-4 bg-green-50 rounded-lg">
+              <p className="text-sm text-gray-600">
+                Tổng doanh thu: <span className="font-bold text-green-700 text-lg">{tuitionGrandTotal.toLocaleString('vi-VN')} đ</span>
+              </p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Attendance Statistics Tab */}
+      {activeTab === 'attendance' && (
       <div className="bg-white rounded-lg lg:rounded-xl shadow-md p-4 lg:p-6">
         <h2 className="text-lg lg:text-xl font-bold text-gray-800 mb-3 lg:mb-4 flex items-center gap-2">
           <ClipboardList className="text-blue-500" size={20} />
@@ -425,6 +667,7 @@ export default function StatisticsPage() {
           </div>
         )}
       </div>
+      )}
     </div>
   );
 }

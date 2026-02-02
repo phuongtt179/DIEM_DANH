@@ -4,6 +4,8 @@ import { useEffect, useState } from 'react';
 import { supabase, Student, Class, Attendance } from '@/lib/supabase';
 import { Save, Trash2 } from 'lucide-react';
 import { format } from 'date-fns';
+import { useAuth } from '@/contexts/AuthContext';
+import { useRouter } from 'next/navigation';
 
 interface AttendanceRecord {
   studentId: string;
@@ -13,6 +15,8 @@ interface AttendanceRecord {
 }
 
 export default function AttendancePage() {
+  const { user, hasPermission } = useAuth();
+  const router = useRouter();
   const [classes, setClasses] = useState<Class[]>([]);
   const [selectedClassId, setSelectedClassId] = useState<string>('');
   const [selectedDate, setSelectedDate] = useState<string>(format(new Date(), 'yyyy-MM-dd'));
@@ -22,9 +26,18 @@ export default function AttendancePage() {
   const [hasExistingAttendance, setHasExistingAttendance] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
+  // Check permission
   useEffect(() => {
-    loadClasses();
-  }, []);
+    if (!hasPermission('view_attendance')) {
+      router.push('/');
+    }
+  }, [hasPermission, router]);
+
+  useEffect(() => {
+    if (user) {
+      loadClasses();
+    }
+  }, [user]);
 
   useEffect(() => {
     if (selectedClassId && selectedDate) {
@@ -34,15 +47,32 @@ export default function AttendancePage() {
 
   async function loadClasses() {
     try {
-      const { data, error } = await supabase
-        .from('classes')
-        .select('*')
-        .order('name');
+      // For teachers, only load their assigned classes
+      if (user?.role === 'teacher') {
+        const { data: teacherClasses, error: tcError } = await supabase
+          .from('teacher_classes')
+          .select('class_id, classes(*)')
+          .eq('user_id', user.id);
 
-      if (error) throw error;
-      setClasses(data || []);
-      if (data && data.length > 0) {
-        setSelectedClassId(data[0].id);
+        if (tcError) throw tcError;
+
+        const assignedClasses = (teacherClasses || []).map((tc: any) => tc.classes);
+        setClasses(assignedClasses);
+        if (assignedClasses.length > 0) {
+          setSelectedClassId(assignedClasses[0].id);
+        }
+      } else {
+        // Admin and treasurer can see all classes
+        const { data, error } = await supabase
+          .from('classes')
+          .select('*')
+          .order('name');
+
+        if (error) throw error;
+        setClasses(data || []);
+        if (data && data.length > 0) {
+          setSelectedClassId(data[0].id);
+        }
       }
     } catch (error) {
       console.error('Error loading classes:', error);
@@ -249,6 +279,7 @@ export default function AttendancePage() {
             />
           </div>
 
+          {hasPermission('take_attendance') && (
           <div className="flex items-end gap-2">
             <button
               onClick={handleSave}
@@ -270,6 +301,7 @@ export default function AttendancePage() {
               </button>
             )}
           </div>
+          )}
         </div>
       </div>
 
@@ -328,8 +360,8 @@ export default function AttendancePage() {
               {attendanceRecords.map((record, index) => (
                 <tr
                   key={record.studentId}
-                  onClick={() => toggleAbsent(record.studentId)}
-                  className="hover:bg-gray-50 transition-colors cursor-pointer active:bg-gray-100"
+                  onClick={() => hasPermission('take_attendance') && toggleAbsent(record.studentId)}
+                  className={`hover:bg-gray-50 transition-colors ${hasPermission('take_attendance') ? 'cursor-pointer active:bg-gray-100' : ''}`}
                 >
                   <td className="px-2 lg:px-6 py-3 lg:py-4 text-xs lg:text-base font-semibold text-gray-800 whitespace-nowrap">
                     {index + 1}. {record.studentName}

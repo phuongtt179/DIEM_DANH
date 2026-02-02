@@ -12,29 +12,41 @@ import {
   BarChart3,
   ExternalLink,
   Menu,
-  X
+  X,
+  LogOut,
+  UserCog,
+  User
 } from 'lucide-react';
+import { useAuth } from '@/contexts/AuthContext';
 
-const navItems = [
-  { href: '/', icon: Home, label: 'Tổng quan' },
-  { href: '/classes', icon: BookOpen, label: 'Lớp học' },
-  { href: '/students', icon: Users, label: 'Học sinh' },
-  { href: '/attendance', icon: ClipboardList, label: 'Điểm danh' },
-  { href: '/payments', icon: DollarSign, label: 'Học phí' },
-  { href: '/statistics', icon: BarChart3, label: 'Thống kê' },
+const allNavItems = [
+  { href: '/', icon: Home, label: 'Tổng quan', permission: 'view_dashboard' },
+  { href: '/classes', icon: BookOpen, label: 'Lớp học', permission: 'manage_classes' },
+  { href: '/students', icon: Users, label: 'Học sinh', permission: 'manage_students' },
+  { href: '/attendance', icon: ClipboardList, label: 'Điểm danh', permission: 'view_attendance' },
+  { href: '/payments', icon: DollarSign, label: 'Học phí', permission: 'manage_payments' },
+  { href: '/statistics', icon: BarChart3, label: 'Thống kê', permission: 'view_statistics' },
+  { href: '/users', icon: UserCog, label: 'Người dùng', permission: 'manage_users' },
 ];
 
-// Mobile bottom navigation - only show 4 items
-const mobileNavItems = [
-  { href: '/', icon: Home, label: 'Tổng quan' },
-  { href: '/attendance', icon: ClipboardList, label: 'Điểm danh' },
-  { href: '/payments', icon: DollarSign, label: 'Học phí' },
-  { href: '/statistics', icon: BarChart3, label: 'Thống kê' },
-];
+const roleLabels: { [key: string]: string } = {
+  admin: 'Quản trị viên',
+  teacher: 'Giáo viên',
+  treasurer: 'Thủ quỹ',
+};
 
 export default function Sidebar() {
   const pathname = usePathname();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const { user, logout, hasPermission } = useAuth();
+
+  // Filter nav items based on permissions
+  const navItems = allNavItems.filter(item => hasPermission(item.permission));
+
+  // Mobile nav items - filter and limit to 4
+  const mobileNavItems = navItems
+    .filter(item => ['/', '/attendance', '/payments', '/statistics'].includes(item.href))
+    .slice(0, 4);
 
   return (
     <>
@@ -42,7 +54,7 @@ export default function Sidebar() {
       <div className="lg:hidden fixed top-0 left-0 right-0 z-40 bg-gradient-to-r from-blue-600 to-blue-700 text-white px-4 py-3 flex items-center justify-between shadow-lg">
         <div>
           <h1 className="text-lg font-bold">Quản lý Lớp học</h1>
-          <p className="text-blue-100 text-xs">Điểm danh & Học phí</p>
+          <p className="text-blue-100 text-xs">{user?.name} - {roleLabels[user?.role || '']}</p>
         </div>
         <button
           onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
@@ -107,15 +119,25 @@ export default function Sidebar() {
         </nav>
 
         <div className="p-4 border-t border-blue-500">
-          <a
-            href={process.env.NEXT_PUBLIC_SUPABASE_URL}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center gap-2 px-4 py-2 text-blue-100 hover:text-white hover:bg-white/10 rounded-lg transition-colors"
+          {/* User info */}
+          <div className="flex items-center gap-3 px-4 py-2 mb-2">
+            <div className="w-8 h-8 bg-white/20 rounded-full flex items-center justify-center">
+              <User size={16} />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold truncate">{user?.name}</p>
+              <p className="text-xs text-blue-200">{roleLabels[user?.role || '']}</p>
+            </div>
+          </div>
+
+          {/* Logout button */}
+          <button
+            onClick={logout}
+            className="flex items-center gap-2 w-full px-4 py-2 text-blue-100 hover:text-white hover:bg-white/10 rounded-lg transition-colors"
           >
-            <ExternalLink size={18} />
-            <span className="text-sm">Mở Supabase</span>
-          </a>
+            <LogOut size={18} />
+            <span className="text-sm">Đăng xuất</span>
+          </button>
         </div>
       </aside>
 
