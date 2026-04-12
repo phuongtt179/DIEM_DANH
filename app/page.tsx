@@ -196,11 +196,12 @@ export default function DashboardPage() {
         return;
       }
 
-      // Get all students with their primary class
+      // Get all students with their primary class and enrollment date
       const { data: studentsData, error: studentsError } = await supabase
         .from('student_classes')
         .select(`
           student_id,
+          enrolled_at,
           students (
             id,
             name
@@ -230,12 +231,18 @@ export default function DashboardPage() {
         (paidPayments || []).map((p: any) => `${p.student_id}-${p.month}`)
       );
 
-      // Find students without paid records for each month
+      // Find students without paid records for each month (only from enrollment month)
       const debts: DebtRecord[] = [];
       for (const month of months) {
         for (const sc of (studentsData || [])) {
           const student = (sc as any).students;
           const classInfo = (sc as any).classes;
+          const enrolledAt = (sc as any).enrolled_at as string | null;
+
+          // Skip months before the student enrolled
+          const enrolledMonth = enrolledAt ? enrolledAt.substring(0, 7) : startMonth;
+          if (month < enrolledMonth) continue;
+
           const key = `${student.id}-${month}`;
 
           if (!paidSet.has(key)) {

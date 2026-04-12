@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
-import { ClipboardList, Check, X, DollarSign } from 'lucide-react';
+import { ClipboardList, Check, X, DollarSign, List, Printer } from 'lucide-react';
 import { format } from 'date-fns';
 import { useAuth } from '@/contexts/AuthContext';
 import { useRouter } from 'next/navigation';
@@ -32,6 +32,16 @@ interface MultiClassAttendance {
   totalAbsent: number;
 }
 
+interface PaymentListRecord {
+  id: string;
+  studentName: string;
+  className: string;
+  paidDate: string | null;
+  amount: number;
+  note: string | null;
+  month: string;
+}
+
 interface TuitionByClass {
   classId: string;
   className: string;
@@ -42,7 +52,7 @@ interface TuitionByClass {
 export default function StatisticsPage() {
   const { user, hasPermission } = useAuth();
   const router = useRouter();
-  const [activeTab, setActiveTab] = useState<'attendance' | 'tuition'>('attendance');
+  const [activeTab, setActiveTab] = useState<'attendance' | 'tuition' | 'paymentList'>('attendance');
   const [studentAttendances, setStudentAttendances] = useState<StudentAttendance[]>([]);
   const [multiClassAttendances, setMultiClassAttendances] = useState<MultiClassAttendance[]>([]);
   const [classDates, setClassDates] = useState<string[]>([]);
@@ -55,6 +65,11 @@ export default function StatisticsPage() {
   const [tuitionStats, setTuitionStats] = useState<TuitionByClass[]>([]);
   const [tuitionMonths, setTuitionMonths] = useState<string[]>([]);
   const [loadingTuition, setLoadingTuition] = useState(false);
+
+  // Payment list state
+  const [paymentList, setPaymentList] = useState<PaymentListRecord[]>([]);
+  const [paymentListMonth, setPaymentListMonth] = useState<string>(format(new Date(), 'yyyy-MM'));
+  const [loadingPaymentList, setLoadingPaymentList] = useState(false);
 
   // Check permission
   useEffect(() => {
@@ -73,7 +88,16 @@ export default function StatisticsPage() {
     if (activeTab === 'tuition') {
       loadTuitionStats();
     }
+    if (activeTab === 'paymentList') {
+      loadPaymentList();
+    }
   }, [activeTab]);
+
+  useEffect(() => {
+    if (activeTab === 'paymentList') {
+      loadPaymentList();
+    }
+  }, [paymentListMonth]);
 
   useEffect(() => {
     if (selectedStatClass && selectedStatMonth) {
@@ -352,6 +376,52 @@ export default function StatisticsPage() {
     }
   }
 
+  async function loadPaymentList() {
+    try {
+      setLoadingPaymentList(true);
+
+      // Lọc theo ngày nộp (paid_date) trong tháng được chọn
+      const [year, monthNum] = paymentListMonth.split('-');
+      const startDate = `${year}-${monthNum}-01`;
+      const lastDay = new Date(parseInt(year), parseInt(monthNum), 0).getDate();
+      const endDate = `${year}-${monthNum}-${String(lastDay).padStart(2, '0')}`;
+
+      const { data, error } = await supabase
+        .from('payments')
+        .select(`
+          id,
+          month,
+          amount,
+          paid_date,
+          note,
+          students (name),
+          classes (name)
+        `)
+        .eq('status', 'paid')
+        .gte('paid_date', startDate)
+        .lte('paid_date', endDate)
+        .order('paid_date', { ascending: true });
+
+      if (error) throw error;
+
+      const records: PaymentListRecord[] = (data || []).map((p: any) => ({
+        id: p.id,
+        studentName: p.students?.name || 'N/A',
+        className: p.classes?.name || 'N/A',
+        paidDate: p.paid_date,
+        amount: p.amount,
+        note: p.note,
+        month: p.month,
+      }));
+
+      setPaymentList(records);
+    } catch (error) {
+      console.error('Error loading payment list:', error);
+    } finally {
+      setLoadingPaymentList(false);
+    }
+  }
+
   const formatDateHeader = (dateStr: string) => {
     const date = new Date(dateStr);
     return format(date, 'd/M');
@@ -366,14 +436,14 @@ export default function StatisticsPage() {
 
   return (
     <div className="p-4 lg:p-8">
-      <div className="mb-6 lg:mb-8">
+      <div className="mb-6 lg:mb-8 print:hidden">
         <h1 className="text-2xl lg:text-3xl font-bold text-gray-800">Thống kê</h1>
         <p className="text-sm lg:text-base text-gray-600 mt-1">Theo dõi điểm danh và học phí</p>
       </div>
 
       {/* Tabs - Hide tuition tab for teachers */}
       {user?.role !== 'teacher' ? (
-      <div className="flex border-b border-gray-200 mb-6">
+      <div className="flex border-b border-gray-200 mb-6 print:hidden">
         <button
           onClick={() => setActiveTab('attendance')}
           className={`flex items-center gap-2 px-4 lg:px-6 py-2 lg:py-3 font-semibold text-sm lg:text-base transition-colors ${
@@ -395,6 +465,17 @@ export default function StatisticsPage() {
         >
           <DollarSign size={18} />
           Học phí
+        </button>
+        <button
+          onClick={() => setActiveTab('paymentList')}
+          className={`flex items-center gap-2 px-4 lg:px-6 py-2 lg:py-3 font-semibold text-sm lg:text-base transition-colors ${
+            activeTab === 'paymentList'
+              ? 'text-purple-600 border-b-2 border-purple-600'
+              : 'text-gray-500 hover:text-gray-700'
+          }`}
+        >
+          <List size={18} />
+          Danh sách nộp phí
         </button>
       </div>
       ) : null}
@@ -479,6 +560,121 @@ export default function StatisticsPage() {
               <p className="text-sm text-gray-600">
                 Tổng doanh thu: <span className="font-bold text-green-700 text-lg">{tuitionGrandTotal.toLocaleString('vi-VN')} đ</span>
               </p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Payment List Tab */}
+      {activeTab === 'paymentList' && (
+        <div className="bg-white rounded-lg lg:rounded-xl shadow-md p-4 lg:p-6">
+            {/* Header chỉ hiện khi in */}
+          <div className="hidden print:block mb-6 border-b-2 border-gray-800 pb-4">
+            <div className="flex justify-between items-start">
+              <div>
+                <p className="text-base font-semibold text-gray-600">Quản lý Lớp học</p>
+                <h1 className="text-2xl font-bold text-gray-900 mt-1">
+                  Danh sách nộp học phí
+                </h1>
+                <p className="text-lg text-gray-700 mt-1">
+                  Tháng {paymentListMonth.split('-')[1]}/{paymentListMonth.split('-')[0]}
+                </p>
+              </div>
+              <div className="text-right text-sm text-gray-600">
+                <p>Ngày in: {format(new Date(), 'dd/MM/yyyy')}</p>
+                {paymentList.length > 0 && (
+                  <p className="font-bold text-green-700 mt-1 text-base">
+                    {paymentList.length} khoản &nbsp;|&nbsp; {paymentList.reduce((s, r) => s + r.amount, 0).toLocaleString('vi-VN')} đ
+                  </p>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Header màn hình — ẩn khi in */}
+          <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 mb-4 lg:mb-6 print:hidden">
+            <h2 className="text-lg lg:text-xl font-bold text-gray-800 flex items-center gap-2">
+              <List className="text-purple-500" size={20} />
+              Danh sách nộp phí
+            </h2>
+            <div className="flex items-center gap-3 flex-wrap">
+              <label className="text-sm font-semibold text-gray-700">Tháng:</label>
+              <input
+                type="month"
+                value={paymentListMonth}
+                onChange={(e) => setPaymentListMonth(e.target.value)}
+                className="px-3 py-2 border-2 border-gray-300 rounded-lg focus:border-purple-500 focus:outline-none text-sm"
+              />
+              <button
+                onClick={() => window.print()}
+                disabled={paymentList.length === 0}
+                className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors text-sm font-semibold"
+              >
+                <Printer size={16} />
+                Xuất PDF / In
+              </button>
+            </div>
+          </div>
+
+          {loadingPaymentList ? (
+            <div className="flex justify-center items-center py-12">
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-600"></div>
+            </div>
+          ) : paymentList.length > 0 ? (
+            <>
+              <div className="overflow-x-auto">
+                <table className="w-full border-collapse">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="border border-gray-300 px-3 py-2 text-xs lg:text-sm font-bold text-gray-700 text-center">STT</th>
+                      <th className="border border-gray-300 px-3 py-2 text-xs lg:text-sm font-bold text-gray-700 text-left min-w-[140px]">Họ và tên</th>
+                      <th className="border border-gray-300 px-3 py-2 text-xs lg:text-sm font-bold text-gray-700 text-left min-w-[100px]">Lớp</th>
+                      <th className="border border-gray-300 px-3 py-2 text-xs lg:text-sm font-bold text-gray-700 text-center min-w-[100px]">Ngày nộp</th>
+                      <th className="border border-gray-300 px-3 py-2 text-xs lg:text-sm font-bold text-gray-700 text-right min-w-[110px]">Số tiền</th>
+                      <th className="border border-gray-300 px-3 py-2 text-xs lg:text-sm font-bold text-gray-700 text-left min-w-[120px]">Ghi chú</th>
+                      <th className="border border-gray-300 px-3 py-2 text-xs lg:text-sm font-bold text-gray-700 text-center min-w-[90px]">HP tháng</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {paymentList.map((record, index) => (
+                      <tr key={record.id} className="hover:bg-gray-50">
+                        <td className="border border-gray-300 px-3 py-2 text-xs lg:text-sm text-center text-gray-600">{index + 1}</td>
+                        <td className="border border-gray-300 px-3 py-2 text-xs lg:text-sm font-semibold text-gray-800">{record.studentName}</td>
+                        <td className="border border-gray-300 px-3 py-2 text-xs lg:text-sm text-gray-700">{record.className}</td>
+                        <td className="border border-gray-300 px-3 py-2 text-xs lg:text-sm text-center text-gray-700">
+                          {record.paidDate
+                            ? format(new Date(record.paidDate), 'dd/MM/yyyy')
+                            : '-'}
+                        </td>
+                        <td className="border border-gray-300 px-3 py-2 text-xs lg:text-sm text-right font-semibold text-green-600">
+                          {record.amount.toLocaleString('vi-VN')} đ
+                        </td>
+                        <td className="border border-gray-300 px-3 py-2 text-xs lg:text-sm text-gray-600">
+                          {record.note || '-'}
+                        </td>
+                        <td className="border border-gray-300 px-3 py-2 text-xs lg:text-sm text-center text-gray-700">
+                          T{record.month.split('-')[1]}/{record.month.split('-')[0].slice(2)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot className="bg-gray-100 border-t-2 border-gray-300">
+                    <tr>
+                      <td colSpan={4} className="border border-gray-300 px-3 py-2 text-xs lg:text-sm font-bold text-gray-700 text-right">
+                        Tổng cộng ({paymentList.length} khoản):
+                      </td>
+                      <td className="border border-gray-300 px-3 py-2 text-xs lg:text-sm text-right font-bold text-green-700">
+                        {paymentList.reduce((sum, r) => sum + r.amount, 0).toLocaleString('vi-VN')} đ
+                      </td>
+                      <td colSpan={2} className="border border-gray-300"></td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            </>
+          ) : (
+            <div className="text-center py-12 text-gray-500">
+              Không có khoản nộp phí nào được thu trong tháng {paymentListMonth.split('-')[1]}/{paymentListMonth.split('-')[0]}
             </div>
           )}
         </div>

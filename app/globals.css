@@ -63,6 +63,53 @@ input[type="month"]::-webkit-calendar-picker-indicator {
   margin-left: 4px;
 }
 
+/* ===================== PRINT STYLES ===================== */
+@media print {
+  html, body {
+    height: auto !important;
+    overflow: visible !important;
+    background: white !important;
+  }
+
+  /* Override the fixed-height flex layout */
+  .h-screen {
+    height: auto !important;
+    overflow: visible !important;
+  }
+
+  /* Hide sidebar */
+  aside {
+    display: none !important;
+  }
+
+  /* Hide all fixed-positioned elements (mobile header, bottom nav, overlays) */
+  .fixed {
+    display: none !important;
+  }
+
+  /* Make main content full-width and overflow visible */
+  main {
+    overflow: visible !important;
+    height: auto !important;
+    padding-top: 0 !important;
+    padding-bottom: 0 !important;
+    width: 100% !important;
+  }
+
+  /* Preserve colors in print */
+  * {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+    box-shadow: none !important;
+  }
+
+  @page {
+    margin: 1.5cm;
+    size: A4;
+  }
+}
+/* ========================================================= */
+
 /* Mobile optimization for date/month inputs */
 @media (max-width: 1024px) {
   input[type="date"],
