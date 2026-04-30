@@ -62,10 +62,11 @@ export default function AttendancePage() {
           setSelectedClassId(assignedClasses[0].id);
         }
       } else {
-        // Admin and treasurer can see all classes
+        // Admin and treasurer can see all active classes
         const { data, error } = await supabase
           .from('classes')
           .select('*')
+          .eq('status', 'active')
           .order('name');
 
         if (error) throw error;
@@ -83,7 +84,7 @@ export default function AttendancePage() {
     try {
       setLoading(true);
 
-      // Get students enrolled in this class (primary OR secondary)
+      // Get students enrolled in this class (primary OR secondary), excluding on-leave students
       const { data: studentClassesData, error: scError } = await supabase
         .from('student_classes')
         .select(`
@@ -91,12 +92,18 @@ export default function AttendancePage() {
           is_primary,
           students (
             id,
-            name
+            name,
+            status
           )
         `)
         .eq('class_id', selectedClassId);
 
       if (scError) throw scError;
+
+      // Filter out on-leave students
+      const activeStudentClasses = (studentClassesData || []).filter(
+        (sc: any) => sc.students?.status !== 'on_leave'
+      );
 
       // Get existing attendance records for this date
       const { data: existingAttendance, error: attendanceError } = await supabase
@@ -111,9 +118,9 @@ export default function AttendancePage() {
       setHasExistingAttendance((existingAttendance?.length || 0) > 0);
 
       // Create attendance records array
-      const records: AttendanceRecord[] = (studentClassesData || []).map((sc: any) => {
+      const records: AttendanceRecord[] = activeStudentClasses.map((sc: any) => {
         const student = sc.students;
-        const existing = existingAttendance?.find(a => a.student_id === student.id);
+        const existing = existingAttendance?.find((a: any) => a.student_id === student.id);
         return {
           studentId: student.id,
           studentName: student.name,

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { supabase, Student, Class, StudentWithClasses } from '@/lib/supabase';
-import { Plus, Edit2, Trash2, X, Filter } from 'lucide-react';
+import { Plus, Edit2, Trash2, X, Filter, PauseCircle, PlayCircle } from 'lucide-react';
 
 export default function StudentsPage() {
   const [students, setStudents] = useState<StudentWithClasses[]>([]);
@@ -42,11 +42,35 @@ export default function StudentsPage() {
     }
   }
 
+  async function handleToggleLeave(student: StudentWithClasses) {
+    const isOnLeave = student.status === 'on_leave';
+    const action = isOnLeave ? 'kích hoạt lại' : 'chuyển sang tạm nghỉ';
+    const warning = isOnLeave
+      ? `Kích hoạt lại "${student.name}"?\n\nHọc sinh sẽ xuất hiện trở lại trong điểm danh và thu học phí.`
+      : `Chuyển "${student.name}" sang tạm nghỉ?\n\nHọc sinh sẽ ẩn khỏi điểm danh và thu học phí cho đến khi được kích hoạt lại.`;
+
+    if (!confirm(warning)) return;
+
+    try {
+      const newStatus = isOnLeave ? 'active' : 'on_leave';
+      const { error } = await supabase
+        .from('students')
+        .update({ status: newStatus })
+        .eq('id', student.id);
+
+      if (error) throw error;
+      loadStudents();
+    } catch (error) {
+      console.error('Error toggling leave status:', error);
+      alert('Lỗi khi thay đổi trạng thái học sinh');
+    }
+  }
+
   async function loadStudents() {
     try {
       setLoading(true);
 
-      // Load all students
+      // Load all students with status
       const { data: studentsData, error: studentsError } = await supabase
         .from('students')
         .select('*')
@@ -247,9 +271,15 @@ export default function StudentsPage() {
     });
   }
 
-  const filteredStudents = filterClassId === 'all'
-    ? students
-    : students.filter(s => s.class_id === filterClassId);
+  const filteredStudents = (() => {
+    let result = students;
+    if (filterClassId === 'on_leave') {
+      result = students.filter(s => s.status === 'on_leave');
+    } else if (filterClassId !== 'all') {
+      result = students.filter(s => s.class_id === filterClassId);
+    }
+    return result;
+  })();
 
   return (
     <div className="p-4 lg:p-8">
@@ -278,9 +308,10 @@ export default function StudentsPage() {
           className="w-full lg:w-auto px-3 lg:px-4 py-2 border-2 border-gray-300 rounded-lg focus:border-blue-500 focus:outline-none text-sm lg:text-base"
         >
           <option value="all">Tất cả lớp</option>
+          <option value="on_leave">Đang tạm nghỉ</option>
           {classes.map((classItem) => (
             <option key={classItem.id} value={classItem.id}>
-              {classItem.name}
+              {classItem.name}{classItem.status === 'locked' ? ' [Đã khóa]' : ''}
             </option>
           ))}
         </select>
@@ -313,8 +344,15 @@ export default function StudentsPage() {
             </thead>
             <tbody className="divide-y divide-gray-200">
               {filteredStudents.map((student) => (
-                <tr key={student.id} className="hover:bg-gray-50 transition-colors">
-                  <td className="px-2 lg:px-6 py-3 lg:py-4 font-semibold text-gray-800 text-xs lg:text-base whitespace-nowrap">{student.name}</td>
+                <tr key={student.id} className={`hover:bg-gray-50 transition-colors ${student.status === 'on_leave' ? 'bg-orange-50' : ''}`}>
+                  <td className="px-2 lg:px-6 py-3 lg:py-4 text-xs lg:text-base whitespace-nowrap">
+                    <div className="flex items-center gap-2">
+                      <span className={`font-semibold ${student.status === 'on_leave' ? 'text-gray-400' : 'text-gray-800'}`}>{student.name}</span>
+                      {student.status === 'on_leave' && (
+                        <span className="px-2 py-0.5 bg-orange-200 text-orange-700 text-xs rounded-full font-semibold whitespace-nowrap">Tạm nghỉ</span>
+                      )}
+                    </div>
+                  </td>
                   <td className="px-2 lg:px-6 py-3 lg:py-4">
                     <div className="flex flex-wrap gap-1">
                       {student.primary_class && (
@@ -345,6 +383,20 @@ export default function StudentsPage() {
                         title="Sửa"
                       >
                         <Edit2 size={16} className="lg:w-[18px] lg:h-[18px]" />
+                      </button>
+                      <button
+                        onClick={() => handleToggleLeave(student)}
+                        className={`p-1.5 lg:p-2 rounded-lg transition-colors ${
+                          student.status === 'on_leave'
+                            ? 'text-green-600 hover:bg-green-50'
+                            : 'text-orange-500 hover:bg-orange-50'
+                        }`}
+                        title={student.status === 'on_leave' ? 'Kích hoạt lại' : 'Chuyển tạm nghỉ'}
+                      >
+                        {student.status === 'on_leave'
+                          ? <PlayCircle size={16} className="lg:w-[18px] lg:h-[18px]" />
+                          : <PauseCircle size={16} className="lg:w-[18px] lg:h-[18px]" />
+                        }
                       </button>
                       <button
                         onClick={() => handleDelete(student.id, student.name)}

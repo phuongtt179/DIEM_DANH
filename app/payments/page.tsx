@@ -131,9 +131,11 @@ function PaymentsContent() {
 
   async function loadClasses() {
     try {
+      // Only show active (non-locked) classes in payments
       const { data, error } = await supabase
         .from('classes')
         .select('*')
+        .eq('status', 'active')
         .order('name');
 
       if (error) throw error;
@@ -155,14 +157,15 @@ function PaymentsContent() {
     try {
       setLoading(true);
 
-      // Get students WHERE this is their PRIMARY class
+      // Get students WHERE this is their PRIMARY class, excluding on-leave students
       const { data: studentClassesData, error: scError } = await supabase
         .from('student_classes')
         .select(`
           student_id,
           students (
             id,
-            name
+            name,
+            status
           )
         `)
         .eq('class_id', selectedClassId)
@@ -186,9 +189,13 @@ function PaymentsContent() {
 
       if (paymentsError) throw paymentsError;
 
-      // Calculate sessions for each student across ALL their classes
+      // Filter out on-leave students, then calculate sessions
+      const activeStudentClasses = (studentClassesData || []).filter(
+        (sc: any) => sc.students?.status !== 'on_leave'
+      );
+
       const records: PaymentRecord[] = await Promise.all(
-        (studentClassesData || []).map(async (sc: any) => {
+        activeStudentClasses.map(async (sc: any) => {
           const student = sc.students;
           const existing = existingPayments?.find(p => p.student_id === student.id);
 

@@ -16,6 +16,8 @@ export interface Class {
   subject: string;
   schedule: string;
   tuition: number;
+  status?: 'active' | 'locked';
+  locked_at?: string;
   created_at?: string;
   updated_at?: string;
 }
@@ -27,6 +29,7 @@ export interface Student {
   parent_phone: string;
   class_id?: string; // Optional for backward compatibility with multi-class system
   note: string;
+  status?: 'active' | 'on_leave';
   created_at?: string;
   updated_at?: string;
 }
