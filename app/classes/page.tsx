@@ -75,7 +75,6 @@ export default function ClassesPage() {
             subject: formData.subject,
             schedule: formData.schedule,
             tuition: parseFloat(formData.tuition),
-            status: 'active',
           }]);
 
         if (error) throw error;
