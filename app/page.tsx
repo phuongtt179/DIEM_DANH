@@ -108,11 +108,13 @@ export default function DashboardPage() {
         .select(`
           id,
           classes!students_class_id_fkey (
-            tuition
+            tuition,
+            status
           )
         `);
 
       const totalExpectedAmount = (studentsWithClasses || []).reduce((sum, student: any) => {
+        if (student.classes?.status === 'locked') return sum;
         const tuition = student.classes?.tuition || 0;
         return sum + tuition;
       }, 0);
