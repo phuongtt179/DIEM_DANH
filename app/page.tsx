@@ -209,7 +209,8 @@ export default function DashboardPage() {
           classes (
             id,
             name,
-            tuition
+            tuition,
+            status
           )
         `)
         .eq('is_primary', true);
@@ -238,6 +239,8 @@ export default function DashboardPage() {
           const student = (sc as any).students;
           const classInfo = (sc as any).classes;
           const enrolledAt = (sc as any).enrolled_at as string | null;
+
+          if (classInfo.status === 'locked') continue;
 
           // Skip months before the student enrolled
           const enrolledMonth = enrolledAt ? enrolledAt.substring(0, 7) : startMonth;
