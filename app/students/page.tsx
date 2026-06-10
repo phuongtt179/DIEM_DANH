@@ -88,7 +88,8 @@ export default function StudentsPage() {
           classes (
             id,
             name,
-            subject
+            subject,
+            status
           )
         `);
 
@@ -272,11 +273,13 @@ export default function StudentsPage() {
   }
 
   const filteredStudents = (() => {
-    let result = students;
+    let result = students.filter(
+      (s: any) => (s.primary_class as any)?.status !== 'locked'
+    );
     if (filterClassId === 'on_leave') {
-      result = students.filter(s => s.status === 'on_leave');
+      result = result.filter(s => s.status === 'on_leave');
     } else if (filterClassId !== 'all') {
-      result = students.filter(s => s.class_id === filterClassId);
+      result = result.filter(s => s.class_id === filterClassId);
     }
     return result;
   })();

@@ -77,10 +77,6 @@ export default function DashboardPage() {
         .from('classes')
         .select('*', { count: 'exact', head: true });
 
-      // Total students
-      const { count: studentsCount } = await supabase
-        .from('students')
-        .select('*', { count: 'exact', head: true });
 
       // Today's attendance
       const today = format(new Date(), 'yyyy-MM-dd');
@@ -113,20 +109,22 @@ export default function DashboardPage() {
           )
         `);
 
-      const totalExpectedAmount = (studentsWithClasses || []).reduce((sum, student: any) => {
-        if (student.classes?.status === 'locked') return sum;
-        const tuition = student.classes?.tuition || 0;
-        return sum + tuition;
+      const activeStudents = (studentsWithClasses || []).filter(
+        (s: any) => s.classes?.status !== 'locked'
+      );
+
+      const totalExpectedAmount = activeStudents.reduce((sum: number, student: any) => {
+        return sum + (student.classes?.tuition || 0);
       }, 0);
 
-      // Calculate unpaid based on total students vs paid count
-      const totalStudents = studentsCount || 0;
+      // Calculate unpaid based on total active students vs paid count
+      const totalStudents = activeStudents.length;
       const paidCount = paidPayments.length;
       const unpaidCount = totalStudents - paidCount;
 
       setStats({
         totalClasses: classesCount || 0,
-        totalStudents: studentsCount || 0,
+        totalStudents: totalStudents,
         todayAttendance: {
           present: presentToday,
           total: totalToday,
