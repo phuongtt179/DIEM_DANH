@@ -11,6 +11,7 @@ export default function StudentsPage() {
   const [showModal, setShowModal] = useState(false);
   const [editingStudent, setEditingStudent] = useState<StudentWithClasses | null>(null);
   const [filterClassId, setFilterClassId] = useState<string>('all');
+  const [searchName, setSearchName] = useState<string>('');
   const [formData, setFormData] = useState({
     name: '',
     phone: '',
@@ -309,6 +310,10 @@ export default function StudentsPage() {
     } else if (filterClassId !== 'all') {
       result = result.filter(s => s.class_id === filterClassId);
     }
+    if (searchName.trim()) {
+      const keyword = searchName.trim().toLowerCase();
+      result = result.filter(s => s.name.toLowerCase().includes(keyword));
+    }
     return result;
   })();
 
@@ -327,7 +332,7 @@ export default function StudentsPage() {
         </button>
       </div>
 
-      {/* Filter - Mobile: 3 rows, Desktop: 1 row */}
+      {/* Filter */}
       <div className="mb-6 bg-white p-3 lg:p-4 rounded-lg shadow space-y-3 lg:space-y-0 lg:flex lg:items-center lg:gap-3">
         <div className="flex items-center gap-2 lg:gap-3">
           <Filter size={18} className="text-gray-600" />
@@ -346,6 +351,13 @@ export default function StudentsPage() {
             </option>
           ))}
         </select>
+        <input
+          type="text"
+          value={searchName}
+          onChange={(e) => setSearchName(e.target.value)}
+          placeholder="Tìm theo tên..."
+          className="w-full lg:w-56 px-3 py-2 border-2 border-gray-300 rounded-lg focus:border-blue-500 focus:outline-none text-sm lg:text-base"
+        />
         <span className="block lg:ml-auto text-gray-600 font-semibold text-sm lg:text-base">
           Tổng: {filteredStudents.length} học sinh
         </span>
