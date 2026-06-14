@@ -169,7 +169,7 @@ function PaymentsContent() {
           )
         `)
         .eq('class_id', selectedClassId)
-        .eq('is_primary', true); // ONLY primary class students
+        .eq('charge_fee', true);
 
       if (scError) throw scError;
 

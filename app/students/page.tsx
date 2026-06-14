@@ -18,6 +18,7 @@ export default function StudentsPage() {
     note: '',
     primary_class_id: '',
     secondary_class_ids: [] as string[],
+    secondary_class_fees: [] as string[], // secondary class IDs that charge fee
   });
 
   useEffect(() => {
@@ -90,7 +91,8 @@ export default function StudentsPage() {
             name,
             subject,
             status
-          )
+          ),
+          charge_fee
         `);
 
       if (scError) throw scError;
@@ -106,7 +108,7 @@ export default function StudentsPage() {
         return {
           ...student,
           primary_class: primaryClass?.classes,
-          secondary_classes: secondaryClasses.map((sc: any) => sc.classes),
+          secondary_classes: secondaryClasses.map((sc: any) => ({ ...sc.classes, charge_fee: sc.charge_fee })),
           class_count: studentClasses.length,
           class_name: (primaryClass?.classes as any)?.name || 'N/A', // Backward compat
           class_id: primaryClass?.class_id || '', // Backward compat
@@ -188,6 +190,7 @@ export default function StudentsPage() {
           student_id: studentId,
           class_id: formData.primary_class_id,
           is_primary: true,
+          charge_fee: true,
         });
       }
 
@@ -197,6 +200,7 @@ export default function StudentsPage() {
           student_id: studentId,
           class_id: classId,
           is_primary: false,
+          charge_fee: formData.secondary_class_fees.includes(classId),
         });
       });
 
@@ -263,6 +267,7 @@ export default function StudentsPage() {
       note: '',
       primary_class_id: '',
       secondary_class_ids: [],
+      secondary_class_fees: [],
     });
     setShowModal(true);
   }
@@ -275,7 +280,8 @@ export default function StudentsPage() {
       parent_phone: student.parent_phone,
       note: student.note,
       primary_class_id: student.class_id || '',
-      secondary_class_ids: student.secondary_classes?.map(c => c.id) || [],
+      secondary_class_ids: student.secondary_classes?.map((c: any) => c.id) || [],
+      secondary_class_fees: student.secondary_classes?.filter((c: any) => c.charge_fee).map((c: any) => c.id) || [],
     });
     setShowModal(true);
   }
@@ -290,6 +296,7 @@ export default function StudentsPage() {
       note: '',
       primary_class_id: '',
       secondary_class_ids: [],
+      secondary_class_fees: [],
     });
   }
 
@@ -505,34 +512,51 @@ export default function StudentsPage() {
                 </label>
                 <div className="border-2 border-gray-300 rounded-lg p-3 max-h-48 overflow-y-auto bg-gray-50">
                   {classes
-                    .filter(c => c.id !== formData.primary_class_id) // Don't show primary class
+                    .filter(c => c.id !== formData.primary_class_id)
                     .map((classItem) => (
-                      <label
-                        key={classItem.id}
-                        className="flex items-center gap-2 p-2 hover:bg-white rounded cursor-pointer transition-colors"
-                      >
-                        <input
-                          type="checkbox"
-                          checked={formData.secondary_class_ids.includes(classItem.id)}
-                          onChange={(e) => {
-                            if (e.target.checked) {
-                              setFormData({
-                                ...formData,
-                                secondary_class_ids: [...formData.secondary_class_ids, classItem.id]
-                              });
-                            } else {
-                              setFormData({
-                                ...formData,
-                                secondary_class_ids: formData.secondary_class_ids.filter(id => id !== classItem.id)
-                              });
-                            }
-                          }}
-                          className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                        />
-                        <span className="text-sm text-gray-700">
-                          {classItem.name} ({classItem.subject})
-                        </span>
-                      </label>
+                      <div key={classItem.id}>
+                        <label className="flex items-center gap-2 p-2 hover:bg-white rounded cursor-pointer transition-colors">
+                          <input
+                            type="checkbox"
+                            checked={formData.secondary_class_ids.includes(classItem.id)}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setFormData({
+                                  ...formData,
+                                  secondary_class_ids: [...formData.secondary_class_ids, classItem.id]
+                                });
+                              } else {
+                                setFormData({
+                                  ...formData,
+                                  secondary_class_ids: formData.secondary_class_ids.filter(id => id !== classItem.id),
+                                  secondary_class_fees: formData.secondary_class_fees.filter(id => id !== classItem.id),
+                                });
+                              }
+                            }}
+                            className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                          />
+                          <span className="text-sm text-gray-700">
+                            {classItem.name} ({classItem.subject})
+                          </span>
+                        </label>
+                        {formData.secondary_class_ids.includes(classItem.id) && (
+                          <label className="flex items-center gap-2 ml-6 mb-1 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={formData.secondary_class_fees.includes(classItem.id)}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setFormData({ ...formData, secondary_class_fees: [...formData.secondary_class_fees, classItem.id] });
+                                } else {
+                                  setFormData({ ...formData, secondary_class_fees: formData.secondary_class_fees.filter(id => id !== classItem.id) });
+                                }
+                              }}
+                              className="rounded border-gray-300 text-green-600 focus:ring-green-500"
+                            />
+                            <span className="text-xs text-green-700 font-semibold">Thu học phí lớp này</span>
+                          </label>
+                        )}
+                      </div>
                     ))}
                   {classes.filter(c => c.id !== formData.primary_class_id).length === 0 && (
                     <p className="text-sm text-gray-500 text-center py-4">

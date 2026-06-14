@@ -98,27 +98,28 @@ export default function DashboardPage() {
       const paidPayments = payments?.filter(p => p.status === 'paid') || [];
       const paidAmount = paidPayments.reduce((sum, p) => sum + p.amount, 0);
 
-      // Calculate total expected amount based on all students and their class tuition
-      const { data: studentsWithClasses } = await supabase
-        .from('students')
+      // Calculate total expected amount: all charge_fee=true student_classes in non-locked classes
+      const { data: feeRelations } = await supabase
+        .from('student_classes')
         .select(`
-          id,
-          classes!students_class_id_fkey (
+          student_id,
+          classes (
             tuition,
             status
           )
-        `);
+        `)
+        .eq('charge_fee', true);
 
-      const activeStudents = (studentsWithClasses || []).filter(
-        (s: any) => s.classes?.status !== 'locked'
+      const activeFeeRelations = (feeRelations || []).filter(
+        (r: any) => r.classes?.status !== 'locked'
       );
 
-      const totalExpectedAmount = activeStudents.reduce((sum: number, student: any) => {
-        return sum + (student.classes?.tuition || 0);
+      const totalExpectedAmount = activeFeeRelations.reduce((sum: number, r: any) => {
+        return sum + (r.classes?.tuition || 0);
       }, 0);
 
-      // Calculate unpaid based on total active students vs paid count
-      const totalStudents = activeStudents.length;
+      // Unique students with at least one active fee-paying class
+      const totalStudents = new Set(activeFeeRelations.map((r: any) => r.student_id)).size;
       const paidCount = paidPayments.length;
       const unpaidCount = totalStudents - paidCount;
 
@@ -213,23 +214,23 @@ export default function DashboardPage() {
             status
           )
         `)
-        .eq('is_primary', true);
+        .eq('charge_fee', true);
 
       if (studentsError) throw studentsError;
 
       // Get all paid payments for these months
       const { data: paidPayments, error: paymentsError } = await supabase
         .from('payments')
-        .select('student_id, month')
+        .select('student_id, class_id, month')
         .eq('status', 'paid')
         .gte('month', startMonth)
         .lt('month', currentMonth);
 
       if (paymentsError) throw paymentsError;
 
-      // Create a set of paid student-month combinations
+      // Key includes class_id so a student can owe multiple classes in the same month
       const paidSet = new Set(
-        (paidPayments || []).map((p: any) => `${p.student_id}-${p.month}`)
+        (paidPayments || []).map((p: any) => `${p.student_id}-${p.class_id}-${p.month}`)
       );
 
       // Find students without paid records for each month (only from enrollment month)
@@ -246,7 +247,7 @@ export default function DashboardPage() {
           const enrolledMonth = enrolledAt ? enrolledAt.substring(0, 7) : startMonth;
           if (month < enrolledMonth) continue;
 
-          const key = `${student.id}-${month}`;
+          const key = `${student.id}-${classInfo.id}-${month}`;
 
           if (!paidSet.has(key)) {
             debts.push({
