@@ -15,7 +15,8 @@ import {
   X,
   LogOut,
   UserCog,
-  User
+  User,
+  GraduationCap
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 
@@ -26,6 +27,7 @@ const allNavItems = [
   { href: '/attendance', icon: ClipboardList, label: 'Điểm danh', permission: 'view_attendance' },
   { href: '/payments', icon: DollarSign, label: 'Học phí', permission: 'manage_payments' },
   { href: '/statistics', icon: BarChart3, label: 'Thống kê', permission: 'view_statistics' },
+  { href: '/assistants', icon: GraduationCap, label: 'Trợ giảng', permission: 'manage_assistants' },
   { href: '/users', icon: UserCog, label: 'Người dùng', permission: 'manage_users' },
 ];
 

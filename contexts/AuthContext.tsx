@@ -31,6 +31,7 @@ const rolePermissions: { [role: string]: string[] } = {
     'view_statistics',
     'manage_payments',
     'manage_users',
+    'manage_assistants',
   ],
   teacher: [
     'view_dashboard',
