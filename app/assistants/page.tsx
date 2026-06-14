@@ -394,36 +394,27 @@ export default function AssistantsPage() {
               <p className="text-sm font-semibold text-gray-700 mb-3">
                 {attAssistant?.name} — {format(new Date(attDate + 'T00:00:00'), 'dd/MM/yyyy')}
               </p>
-              <div className="space-y-3">
+              <div className="space-y-2">
                 {sessionInputs.map((inp, i) => (
-                  <div key={inp.class_id} className="flex flex-col lg:flex-row lg:items-center gap-3 p-3 border border-gray-200 rounded-lg">
-                    <span className="font-semibold text-gray-800 lg:w-48">{inp.class_name}</span>
-                    <div className="flex items-center gap-2">
-                      <label className="text-sm text-gray-600">Số suất dạy:</label>
-                      <div className="flex gap-1">
-                        {[0, 1, 2].map(n => (
-                          <button
-                            key={n}
-                            onClick={() => {
-                              const updated = [...sessionInputs];
-                              updated[i] = { ...updated[i], sessions_count: n };
-                              setSessionInputs(updated);
-                            }}
-                            className={`w-10 h-10 rounded-lg font-bold text-sm border-2 transition-colors ${
-                              inp.sessions_count === n
-                                ? n === 0 ? 'bg-gray-200 border-gray-400 text-gray-700'
-                                  : 'bg-blue-600 border-blue-600 text-white'
-                                : 'border-gray-300 text-gray-600 hover:border-blue-400'
-                            }`}
-                          >
-                            {n === 0 ? 'KD' : n}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
+                  <label key={inp.class_id} className={`flex items-center gap-3 p-3 border-2 rounded-lg cursor-pointer transition-colors ${inp.sessions_count > 0 ? 'border-blue-400 bg-blue-50' : 'border-gray-200 hover:border-gray-300'}`}>
+                    <input
+                      type="checkbox"
+                      checked={inp.sessions_count > 0}
+                      onChange={e => {
+                        const updated = [...sessionInputs];
+                        updated[i] = { ...updated[i], sessions_count: e.target.checked ? 1 : 0 };
+                        setSessionInputs(updated);
+                      }}
+                      className="w-5 h-5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                    />
+                    <span className={`font-semibold text-sm ${inp.sessions_count > 0 ? 'text-blue-700' : 'text-gray-700'}`}>
+                      {inp.class_name}
+                    </span>
+                    {inp.sessions_count > 0 && (
                     <input
                       type="text"
                       value={inp.note}
+                      onClick={e => e.preventDefault()}
                       onChange={e => {
                         const updated = [...sessionInputs];
                         updated[i] = { ...updated[i], note: e.target.value };
@@ -432,7 +423,8 @@ export default function AssistantsPage() {
                       placeholder="Ghi chú..."
                       className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:border-blue-500 focus:outline-none"
                     />
-                  </div>
+                    )}
+                  </label>
                 ))}
               </div>
               <button
