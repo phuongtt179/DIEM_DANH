@@ -127,11 +127,15 @@ export default function StudentsPage() {
 
     try {
       // Warn if changing primary class
-      if (editingStudent && editingStudent.class_id &&
-          editingStudent.class_id !== formData.primary_class_id) {
+      const isChangingPrimaryClass = editingStudent &&
+        editingStudent.class_id &&
+        editingStudent.class_id !== formData.primary_class_id;
+
+      if (isChangingPrimaryClass) {
         const confirmed = confirm(
-          'Bạn đang thay đổi lớp chính. Học phí cũ sẽ được giữ nguyên ở lớp cũ, ' +
-          'học phí mới sẽ tạo ở lớp mới. Tiếp tục?'
+          'Bạn đang thay đổi lớp chính.\n\n' +
+          'Toàn bộ điểm danh và học phí sẽ được chuyển sang lớp mới.\n\n' +
+          'Tiếp tục?'
         );
         if (!confirmed) return;
       }
@@ -202,6 +206,23 @@ export default function StudentsPage() {
           .insert(classRelationships);
 
         if (scError) throw scError;
+      }
+
+      // Transfer attendance and payments to new class
+      if (isChangingPrimaryClass && formData.primary_class_id) {
+        const oldClassId = editingStudent!.class_id;
+
+        await supabase
+          .from('attendance')
+          .update({ class_id: formData.primary_class_id })
+          .eq('student_id', studentId)
+          .eq('class_id', oldClassId);
+
+        await supabase
+          .from('payments')
+          .update({ class_id: formData.primary_class_id })
+          .eq('student_id', studentId)
+          .eq('class_id', oldClassId);
       }
 
       alert(editingStudent ? 'Cập nhật học sinh thành công!' : 'Thêm học sinh thành công!');
