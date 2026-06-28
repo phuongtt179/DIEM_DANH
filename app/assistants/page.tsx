@@ -36,6 +36,14 @@ interface StatRow {
   total_sessions: number;
 }
 
+interface PaymentRecord {
+  id: string;
+  assistant_id: string;
+  month: string;
+  amount: number;
+  paid_at: string;
+}
+
 type Tab = 'list' | 'attendance' | 'stats';
 
 export default function AssistantsPage() {
@@ -63,7 +71,13 @@ export default function AssistantsPage() {
   // Stats tab state
   const [statsMonth, setStatsMonth] = useState(format(new Date(), 'yyyy-MM'));
   const [statsRows, setStatsRows] = useState<StatRow[]>([]);
+  const [payments, setPayments] = useState<Record<string, PaymentRecord>>({});
   const [loadingStats, setLoadingStats] = useState(false);
+
+  // Payment modal state
+  const [showPayModal, setShowPayModal] = useState(false);
+  const [payingAssistant, setPayingAssistant] = useState<{ id: string; name: string; total: number } | null>(null);
+  const [payInput, setPayInput] = useState('');
 
   useEffect(() => {
     if (!hasPermission('manage_assistants')) {
@@ -175,17 +189,17 @@ export default function AssistantsPage() {
       const lastDay = new Date(parseInt(year), parseInt(month), 0).getDate();
       const endDate = `${statsMonth}-${String(lastDay).padStart(2, '0')}`;
 
-      const { data } = await supabase
-        .from('assistant_sessions')
-        .select(`
-          assistant_id,
-          class_id,
-          sessions_count,
-          assistants (name),
-          classes (name)
-        `)
-        .gte('date', startDate)
-        .lte('date', endDate);
+      const [{ data }, { data: payData }] = await Promise.all([
+        supabase
+          .from('assistant_sessions')
+          .select(`assistant_id, class_id, sessions_count, assistants (name), classes (name)`)
+          .gte('date', startDate)
+          .lte('date', endDate),
+        supabase
+          .from('assistant_payments')
+          .select('*')
+          .eq('month', statsMonth),
+      ]);
 
       const grouped: Record<string, StatRow> = {};
       (data || []).forEach((r: any) => {
@@ -202,9 +216,38 @@ export default function AssistantsPage() {
         grouped[key].total_sessions += r.sessions_count;
       });
       setStatsRows(Object.values(grouped).sort((a, b) => a.assistant_name.localeCompare(b.assistant_name)));
+
+      const payMap: Record<string, PaymentRecord> = {};
+      (payData || []).forEach((p: any) => { payMap[p.assistant_id] = p; });
+      setPayments(payMap);
     } finally {
       setLoadingStats(false);
     }
+  }
+
+  async function handlePay() {
+    if (!payingAssistant) return;
+    const amount = parseInt(payInput.replace(/\D/g, ''));
+    if (!amount) { alert('Vui lòng nhập số tiền'); return; }
+    try {
+      await supabase.from('assistant_payments').upsert({
+        assistant_id: payingAssistant.id,
+        month: statsMonth,
+        amount,
+      }, { onConflict: 'assistant_id,month' });
+      setShowPayModal(false);
+      setPayInput('');
+      loadStats();
+    } catch {
+      alert('Lỗi khi lưu thanh toán');
+    }
+  }
+
+  async function handleUnpay(assistantId: string) {
+    if (!confirm('Bỏ đánh dấu đã thanh toán?')) return;
+    await supabase.from('assistant_payments').delete()
+      .eq('assistant_id', assistantId).eq('month', statsMonth);
+    loadStats();
   }
 
   function openAdd() {
@@ -263,14 +306,32 @@ export default function AssistantsPage() {
   }
 
   const attAssistant = assistants.find(a => a.id === attAssistantId);
-  const statsTotalSessions = statsRows.reduce((s, r) => s + r.total_sessions, 0);
 
-  // Group stats by assistant
-  const statsByAssistant: Record<string, StatRow[]> = {};
+  // Pivot: unique classes that appear in statsRows
+  const pivotClasses: { id: string; name: string }[] = [];
+  const seenClassIds = new Set<string>();
   statsRows.forEach(r => {
-    if (!statsByAssistant[r.assistant_id]) statsByAssistant[r.assistant_id] = [];
-    statsByAssistant[r.assistant_id].push(r);
+    if (!seenClassIds.has(r.class_id)) {
+      seenClassIds.add(r.class_id);
+      pivotClasses.push({ id: r.class_id, name: r.class_name });
+    }
   });
+
+  // Pivot: group by assistant
+  const pivotByAssistant: Record<string, { name: string; sessions: Record<string, number> }> = {};
+  statsRows.forEach(r => {
+    if (!pivotByAssistant[r.assistant_id]) {
+      pivotByAssistant[r.assistant_id] = { name: r.assistant_name, sessions: {} };
+    }
+    pivotByAssistant[r.assistant_id].sessions[r.class_id] = r.total_sessions;
+  });
+  const pivotAssistants = Object.entries(pivotByAssistant).map(([id, val]) => ({
+    id,
+    name: val.name,
+    sessions: val.sessions,
+    total: Object.values(val.sessions).reduce((s, n) => s + n, 0),
+  }));
+  const RATE = 100000;
 
   return (
     <div className="p-4 lg:p-8">
@@ -455,50 +516,118 @@ export default function AssistantsPage() {
 
           {loadingStats ? (
             <div className="flex justify-center py-12"><div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600" /></div>
-          ) : statsRows.length === 0 ? (
+          ) : pivotAssistants.length === 0 ? (
             <p className="text-center py-12 text-gray-500">Không có dữ liệu tháng {statsMonth.split('-')[1]}/{statsMonth.split('-')[0]}</p>
           ) : (
-            <>
-              <div className="overflow-x-auto">
-                <table className="w-full border-collapse">
-                  <thead className="bg-gray-50">
-                    <tr>
-                      <th className="border border-gray-200 px-4 py-2 text-left text-sm font-bold text-gray-700">Trợ giảng</th>
-                      <th className="border border-gray-200 px-4 py-2 text-left text-sm font-bold text-gray-700">Lớp</th>
-                      <th className="border border-gray-200 px-4 py-2 text-center text-sm font-bold text-gray-700">Số suất dạy</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {Object.entries(statsByAssistant).map(([aid, rows]) => (
-                      rows.map((row, idx) => (
-                        <tr key={`${aid}-${row.class_id}`} className="hover:bg-gray-50">
-                          {idx === 0 && (
-                            <td
-                              className="border border-gray-200 px-4 py-2 font-semibold text-gray-800 align-top"
-                              rowSpan={rows.length}
-                            >
-                              {row.assistant_name}
-                              <div className="text-xs text-blue-600 font-normal mt-1">
-                                Tổng: {rows.reduce((s, r) => s + r.total_sessions, 0)} suất
-                              </div>
-                            </td>
-                          )}
-                          <td className="border border-gray-200 px-4 py-2 text-gray-700">{row.class_name}</td>
-                          <td className="border border-gray-200 px-4 py-2 text-center font-bold text-blue-700">{row.total_sessions}</td>
-                        </tr>
-                      ))
+            <div className="overflow-x-auto">
+              <table className="w-full border-collapse text-sm">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="border border-gray-200 px-3 py-2 text-left font-bold text-gray-700 min-w-[130px]">Trợ giảng</th>
+                    {pivotClasses.map(c => (
+                      <th key={c.id} className="border border-gray-200 px-3 py-2 text-center font-bold text-gray-700 min-w-[80px]">{c.name}</th>
                     ))}
-                  </tbody>
-                  <tfoot className="bg-gray-100 border-t-2 border-gray-300">
-                    <tr>
-                      <td colSpan={2} className="border border-gray-200 px-4 py-2 font-bold text-gray-700 text-right">Tổng cộng:</td>
-                      <td className="border border-gray-200 px-4 py-2 text-center font-bold text-blue-700">{statsTotalSessions} suất</td>
-                    </tr>
-                  </tfoot>
-                </table>
-              </div>
-            </>
+                    <th className="border border-gray-200 px-3 py-2 text-center font-bold text-gray-700 min-w-[90px]">Tổng buổi</th>
+                    <th className="border border-gray-200 px-3 py-2 text-center font-bold text-gray-700 min-w-[120px]">Thành tiền</th>
+                    <th className="border border-gray-200 px-3 py-2 text-center font-bold text-gray-700 min-w-[150px]">Thanh toán</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {pivotAssistants.map(a => {
+                    const pay = payments[a.id];
+                    return (
+                      <tr key={a.id} className="hover:bg-gray-50">
+                        <td className="border border-gray-200 px-3 py-2 font-semibold text-gray-800">{a.name}</td>
+                        {pivotClasses.map(c => (
+                          <td key={c.id} className="border border-gray-200 px-3 py-2 text-center text-blue-700 font-bold">
+                            {a.sessions[c.id] || '-'}
+                          </td>
+                        ))}
+                        <td className="border border-gray-200 px-3 py-2 text-center font-bold text-gray-800">{a.total}</td>
+                        <td className="border border-gray-200 px-3 py-2 text-center font-bold text-green-700">
+                          {(a.total * RATE).toLocaleString('vi-VN')} đ
+                        </td>
+                        <td className="border border-gray-200 px-3 py-2 text-center">
+                          {pay ? (
+                            <div>
+                              <div className="text-green-600 font-semibold text-xs">✓ Đã thanh toán</div>
+                              <div className="text-green-700 font-bold">{pay.amount.toLocaleString('vi-VN')} đ</div>
+                              <button
+                                onClick={() => handleUnpay(a.id)}
+                                className="text-xs text-gray-400 hover:text-red-500 mt-0.5"
+                              >
+                                Bỏ xác nhận
+                              </button>
+                            </div>
+                          ) : (
+                            <button
+                              onClick={() => {
+                                setPayingAssistant({ id: a.id, name: a.name, total: a.total });
+                                setPayInput((a.total * RATE).toString());
+                                setShowPayModal(true);
+                              }}
+                              className="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-xs font-semibold hover:bg-blue-700"
+                            >
+                              Thanh toán
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+                <tfoot className="bg-gray-100 border-t-2 border-gray-300">
+                  <tr>
+                    <td className="border border-gray-200 px-3 py-2 font-bold text-gray-700">Tổng</td>
+                    {pivotClasses.map(c => (
+                      <td key={c.id} className="border border-gray-200 px-3 py-2 text-center font-bold text-gray-700">
+                        {pivotAssistants.reduce((s, a) => s + (a.sessions[c.id] || 0), 0)}
+                      </td>
+                    ))}
+                    <td className="border border-gray-200 px-3 py-2 text-center font-bold text-gray-800">
+                      {pivotAssistants.reduce((s, a) => s + a.total, 0)}
+                    </td>
+                    <td className="border border-gray-200 px-3 py-2 text-center font-bold text-green-700">
+                      {(pivotAssistants.reduce((s, a) => s + a.total, 0) * RATE).toLocaleString('vi-VN')} đ
+                    </td>
+                    <td className="border border-gray-200" />
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
           )}
+        </div>
+      )}
+
+      {/* ====== MODAL THANH TOÁN ====== */}
+      {showPayModal && payingAssistant && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm">
+            <div className="flex items-center justify-between p-5 border-b">
+              <h2 className="text-lg font-bold text-gray-800">Xác nhận thanh toán</h2>
+              <button onClick={() => setShowPayModal(false)} className="text-gray-400 hover:text-gray-600"><X size={22} /></button>
+            </div>
+            <div className="p-5 space-y-4">
+              <div className="bg-gray-50 rounded-lg p-3 text-sm text-gray-700 space-y-1">
+                <div><span className="font-semibold">Trợ giảng:</span> {payingAssistant.name}</div>
+                <div><span className="font-semibold">Tháng:</span> {statsMonth.split('-')[1]}/{statsMonth.split('-')[0]}</div>
+                <div><span className="font-semibold">Số buổi:</span> {payingAssistant.total} buổi × 100.000 đ</div>
+              </div>
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-1">Số tiền thanh toán</label>
+                <input
+                  type="text"
+                  value={parseInt(payInput || '0').toLocaleString('vi-VN')}
+                  onChange={e => setPayInput(e.target.value.replace(/\D/g, ''))}
+                  className="w-full px-3 py-2 border-2 border-gray-300 rounded-lg focus:border-blue-500 focus:outline-none text-sm font-semibold"
+                />
+              </div>
+            </div>
+            <div className="flex gap-3 p-5 border-t">
+              <button onClick={() => setShowPayModal(false)} className="flex-1 px-4 py-2 border-2 border-gray-300 rounded-lg text-gray-700 font-semibold text-sm hover:bg-gray-50">Hủy</button>
+              <button onClick={handlePay} className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg font-semibold text-sm hover:bg-green-700">Xác nhận đã trả</button>
+            </div>
+          </div>
         </div>
       )}
 
