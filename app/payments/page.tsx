@@ -496,6 +496,7 @@ function PaymentsContent() {
                 <th className="px-3 lg:px-6 py-2 lg:py-3 text-center text-xs lg:text-sm font-bold text-gray-700">Số buổi học</th>
                 <th className="px-3 lg:px-6 py-2 lg:py-3 text-right text-xs lg:text-sm font-bold text-gray-700">Học phí</th>
                 <th className="px-3 lg:px-6 py-2 lg:py-3 text-center text-xs lg:text-sm font-bold text-gray-700">Ngày đóng</th>
+                <th className="px-3 lg:px-6 py-2 lg:py-3 text-left text-xs lg:text-sm font-bold text-gray-700">Ghi chú</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200">
@@ -519,6 +520,9 @@ function PaymentsContent() {
                     ) : (
                       <span className="text-red-600 font-semibold">Chưa đóng</span>
                     )}
+                  </td>
+                  <td className="px-3 lg:px-6 py-2 lg:py-3 text-xs lg:text-base text-gray-500">
+                    {record.note || ''}
                   </td>
                 </tr>
               ))}
