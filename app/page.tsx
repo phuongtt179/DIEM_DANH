@@ -39,6 +39,7 @@ interface DebtRecord {
   classId: string;
   month: string;
   amount: number;
+  studentNote: string | null;
 }
 
 interface YearlyRevenue {
@@ -205,7 +206,8 @@ export default function DashboardPage() {
           enrolled_at,
           students (
             id,
-            name
+            name,
+            note
           ),
           classes (
             id,
@@ -257,6 +259,7 @@ export default function DashboardPage() {
               classId: classInfo.id,
               month: month,
               amount: classInfo.tuition || 0,
+              studentNote: student.note || null,
             });
           }
         }
@@ -459,6 +462,7 @@ export default function DashboardPage() {
                       <th className="px-3 lg:px-6 py-2 lg:py-3 text-left text-xs lg:text-sm font-bold text-gray-700">Tên học sinh</th>
                       <th className="px-3 lg:px-6 py-2 lg:py-3 text-left text-xs lg:text-sm font-bold text-gray-700">Lớp</th>
                       <th className="px-3 lg:px-6 py-2 lg:py-3 text-center text-xs lg:text-sm font-bold text-gray-700">Tháng</th>
+                      <th className="px-3 lg:px-6 py-2 lg:py-3 text-left text-xs lg:text-sm font-bold text-gray-700">Ghi chú</th>
                       <th className="px-3 lg:px-6 py-2 lg:py-3 text-right text-xs lg:text-sm font-bold text-gray-700">Số tiền</th>
                     </tr>
                   </thead>
@@ -475,6 +479,9 @@ export default function DashboardPage() {
                         <td className="px-3 lg:px-6 py-2 lg:py-3 text-xs lg:text-base text-center text-gray-600">
                           {debt.month.split('-')[1]}/{debt.month.split('-')[0]}
                         </td>
+                        <td className="px-3 lg:px-6 py-2 lg:py-3 text-xs lg:text-base text-gray-500">
+                          {debt.studentNote || ''}
+                        </td>
                         <td className="px-3 lg:px-6 py-2 lg:py-3 text-xs lg:text-base text-right font-semibold text-red-600">
                           {debt.amount.toLocaleString('vi-VN')} đ
                         </td>
@@ -483,7 +490,7 @@ export default function DashboardPage() {
                   </tbody>
                   <tfoot className="bg-red-50 border-t-2 border-red-200">
                     <tr>
-                      <td colSpan={4} className="px-3 lg:px-6 py-2 lg:py-3 text-xs lg:text-sm font-bold text-gray-700 text-right">
+                      <td colSpan={5} className="px-3 lg:px-6 py-2 lg:py-3 text-xs lg:text-sm font-bold text-gray-700 text-right">
                         Tổng nợ:
                       </td>
                       <td className="px-3 lg:px-6 py-2 lg:py-3 text-right font-bold text-red-600">
