@@ -16,6 +16,7 @@ interface PaymentRecord {
   status: 'paid' | 'unpaid';
   paidDate: string | null;
   note: string | null;
+  studentNote: string | null;
 }
 
 export default function PaymentsPage() {
@@ -165,7 +166,8 @@ function PaymentsContent() {
           students (
             id,
             name,
-            status
+            status,
+            note
           )
         `)
         .eq('class_id', selectedClassId)
@@ -215,6 +217,7 @@ function PaymentsContent() {
             status: existing?.status || 'unpaid',
             paidDate: existing?.paid_date || null,
             note: existing?.note || null,
+            studentNote: student.note || null,
           };
         })
       );
@@ -522,7 +525,7 @@ function PaymentsContent() {
                     )}
                   </td>
                   <td className="px-3 lg:px-6 py-2 lg:py-3 text-xs lg:text-base text-gray-500">
-                    {record.note || ''}
+                    {record.studentNote || ''}
                   </td>
                 </tr>
               ))}
