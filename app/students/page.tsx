@@ -176,6 +176,18 @@ export default function StudentsPage() {
         studentId = newStudent.id;
       }
 
+      // Load existing enrolled_at values before deleting (to preserve them on edit)
+      const { data: existingRelations } = await supabase
+        .from('student_classes')
+        .select('class_id, enrolled_at')
+        .eq('student_id', studentId);
+      const enrolledAtMap: Record<string, string> = {};
+      (existingRelations || []).forEach((r: any) => {
+        if (r.enrolled_at) enrolledAtMap[r.class_id] = r.enrolled_at;
+      });
+
+      const now = new Date().toISOString();
+
       // DELETE old student_classes relationships
       await supabase
         .from('student_classes')
@@ -192,6 +204,7 @@ export default function StudentsPage() {
           class_id: formData.primary_class_id,
           is_primary: true,
           charge_fee: true,
+          enrolled_at: enrolledAtMap[formData.primary_class_id] || now,
         });
       }
 
@@ -202,6 +215,7 @@ export default function StudentsPage() {
           class_id: classId,
           is_primary: false,
           charge_fee: formData.secondary_class_fees.includes(classId),
+          enrolled_at: enrolledAtMap[classId] || now,
         });
       });
 
