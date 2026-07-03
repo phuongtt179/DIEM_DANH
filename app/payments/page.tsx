@@ -42,6 +42,7 @@ function PaymentsContent() {
   const [selectedMonth, setSelectedMonth] = useState<string>(urlMonth || format(new Date(), 'yyyy-MM'));
   const [paymentRecords, setPaymentRecords] = useState<PaymentRecord[]>([]);
   const [filterStatus, setFilterStatus] = useState<'all' | 'paid' | 'unpaid'>('all');
+  const [searchName, setSearchName] = useState('');
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [showModal, setShowModal] = useState(false);
@@ -377,6 +378,11 @@ function PaymentsContent() {
       });
     }
 
+    if (searchName.trim()) {
+      const keyword = searchName.trim().toLowerCase();
+      records = records.filter(r => r.studentName.toLowerCase().includes(keyword));
+    }
+
     return records;
   })();
 
@@ -432,6 +438,19 @@ function PaymentsContent() {
             />
           </div>
         </div>
+
+        {/* Search by name */}
+        {paymentRecords.length > 0 && (
+          <div className="pt-3">
+            <input
+              type="text"
+              value={searchName}
+              onChange={e => setSearchName(e.target.value)}
+              placeholder="Tìm theo tên học sinh..."
+              className="w-full lg:w-72 px-3 py-2 border-2 border-gray-300 rounded-lg focus:border-blue-500 focus:outline-none text-sm"
+            />
+          </div>
+        )}
 
         {/* Stats - Clickable to filter */}
         {paymentRecords.length > 0 && (
