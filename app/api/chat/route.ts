@@ -209,6 +209,26 @@ async function toolGetRevenue(args: { period: 'month' | 'quarter' | 'year'; valu
   };
 }
 
+// Doanh thu theo TỪNG LỚP trong 1 tháng (cộng server-side, khớp trang Thống kê học phí theo lớp).
+async function toolRevenueByClass(args: { month: string }) {
+  const month = args.month || currentMonth();
+  const { data: classes } = await supabase.from('classes').select('id, name').order('name');
+  const { data: pays } = await supabase
+    .from('payments')
+    .select('class_id, amount')
+    .eq('status', 'paid')
+    .eq('month', month);
+
+  const sumByClass = new Map<string, number>();
+  (pays || []).forEach((p: any) => sumByClass.set(p.class_id, (sumByClass.get(p.class_id) || 0) + (p.amount || 0)));
+
+  const list = (classes || [])
+    .map((c: any) => ({ lop: c.name, so_tien: sumByClass.get(c.id) || 0 }))
+    .filter((x: any) => x.so_tien > 0);
+
+  return { thang: month, danh_sach: list, tong: list.reduce((s: number, x: any) => s + x.so_tien, 0) };
+}
+
 async function toolAttendanceSummary(args: { class_name: string; month: string }) {
   const r = await resolveClass(args.class_name);
   if (!r.one) return { need_clarification: true, matches: (r.matches || []).map((c: any) => c.name) };
@@ -520,6 +540,7 @@ async function runTool(name: string, args: any): Promise<unknown> {
     case 'get_debts': return toolGetDebts(args);
     case 'get_payments': return toolGetPayments(args);
     case 'get_revenue': return toolGetRevenue(args);
+    case 'get_revenue_by_class': return toolRevenueByClass(args);
     case 'get_attendance_summary': return toolAttendanceSummary(args);
     case 'find_students': return toolFindStudents(args);
     case 'mark_paid': return toolMarkPaid(args);
@@ -582,6 +603,15 @@ const TOOLS = [{
           value: { type: 'string', description: 'Tháng YYYY-MM, quý YYYY-Q2, hoặc năm YYYY' },
         },
         required: ['period', 'value'],
+      },
+    },
+    {
+      name: 'get_revenue_by_class',
+      description: 'Doanh thu (tiền đã thu) của TỪNG LỚP trong 1 tháng. DÙNG công cụ này khi người dùng hỏi doanh thu theo từng lớp — KHÔNG tự cộng tay từ get_payments.',
+      parameters: {
+        type: 'object',
+        properties: { month: { type: 'string', description: 'Tháng, dạng YYYY-MM' } },
+        required: ['month'],
       },
     },
     {
