@@ -292,10 +292,11 @@ async function toolFindStudents(args: { name: string; class_name?: string; month
 // Ghi "đã đóng" cho 1 học sinh ở 1 lớp trong 1 tháng. CHỈ gọi sau khi người dùng đã xác nhận.
 async function toolMarkPaid(args: { student_id: string; class_id: string; month?: string; amount?: number; note?: string }) {
   const month = args.month || currentMonth();
-  if (!args.student_id || !args.class_id) return { error: 'thiếu student_id hoặc class_id — hãy dùng find_students trước' };
+  if (!args.student_id || !args.class_id) return { ok: false, error: 'thiếu student_id hoặc class_id — hãy dùng find_students trước' };
 
-  const { data: cls } = await supabase.from('classes').select('name, tuition').eq('id', args.class_id).single();
-  const amount = typeof args.amount === 'number' ? args.amount : (cls?.tuition ?? 0);
+  const { data: cls } = await supabase.from('classes').select('name, tuition').eq('id', args.class_id).maybeSingle();
+  if (!cls) return { ok: false, error: 'class_id không tồn tại — hãy dùng find_students để lấy đúng id' };
+  const amount = typeof args.amount === 'number' ? args.amount : (cls.tuition ?? 0);
 
   const { data: existing } = await supabase
     .from('payments')
@@ -303,21 +304,25 @@ async function toolMarkPaid(args: { student_id: string; class_id: string; month?
     .eq('student_id', args.student_id)
     .eq('class_id', args.class_id)
     .eq('month', month)
-    .single();
+    .maybeSingle();
 
+  let writeErr: any = null;
   if (existing) {
-    await supabase.from('payments').update({
+    const { error } = await supabase.from('payments').update({
       status: 'paid', amount, paid_date: todayStr(), note: args.note ?? null,
     }).eq('id', existing.id);
+    writeErr = error;
   } else {
-    await supabase.from('payments').insert([{
+    const { error } = await supabase.from('payments').insert([{
       student_id: args.student_id, class_id: args.class_id, month,
       amount, sessions: 0, paid_date: todayStr(), status: 'paid', note: args.note ?? null,
     }]);
+    writeErr = error;
   }
+  if (writeErr) return { ok: false, error: writeErr.message || String(writeErr) };
 
-  const { data: st } = await supabase.from('students').select('name').eq('id', args.student_id).single();
-  return { ok: true, ten: st?.name, lop: cls?.name, thang: month, so_tien: amount, ngay_dong: todayStr(), ghi_chu: args.note ?? null };
+  const { data: st } = await supabase.from('students').select('name').eq('id', args.student_id).maybeSingle();
+  return { ok: true, ten: st?.name, lop: cls.name, thang: month, so_tien: amount, ngay_dong: todayStr(), ghi_chu: args.note ?? null };
 }
 
 // ---- Công cụ điểm danh (Giai đoạn 3) ----
@@ -375,18 +380,22 @@ async function toolSaveAttendance(args: { class_id: string; date?: string; absen
   const existMap = new Map((existing || []).map((a: any) => [a.student_id, a.id]));
 
   const absentNames: string[] = [];
+  let writeErr: any = null;
   for (const st of students) {
     const status = absentSet.has(st.id) ? 'absent' : 'present';
     if (status === 'absent') absentNames.push(st.name);
     const eid = existMap.get(st.id);
     if (eid) {
-      await supabase.from('attendance').update({ status }).eq('id', eid);
+      const { error } = await supabase.from('attendance').update({ status }).eq('id', eid);
+      if (error) writeErr = error;
     } else {
-      await supabase.from('attendance').insert([{ student_id: st.id, class_id: args.class_id, date, status, note: '' }]);
+      const { error } = await supabase.from('attendance').insert([{ student_id: st.id, class_id: args.class_id, date, status, note: '' }]);
+      if (error) writeErr = error;
     }
   }
+  if (writeErr) return { ok: false, error: writeErr.message || String(writeErr) };
 
-  const { data: cls } = await supabase.from('classes').select('name').eq('id', args.class_id).single();
+  const { data: cls } = await supabase.from('classes').select('name').eq('id', args.class_id).maybeSingle();
   return { ok: true, lop: cls?.name, ngay: date, si_so: students.length, so_vang: absentNames.length, vang: absentNames };
 }
 
@@ -536,7 +545,9 @@ function systemPrompt(): string {
 
 Hôm nay là ${todayStr()} (tháng hiện tại: ${currentMonth()}).
 
-NHIỆM VỤ: Người dùng hỏi về dữ liệu lớp học (nợ học phí, ai đã nộp, doanh thu, sĩ số, điểm danh...) HOẶC ra lệnh THU HỌC PHÍ. Bạn GỌI CÔNG CỤ phù hợp để lấy/ghi dữ liệu THẬT. TUYỆT ĐỐI không bịa số liệu — luôn dựa vào kết quả công cụ.
+NHIỆM VỤ: Người dùng hỏi về dữ liệu lớp học (nợ học phí, ai đã nộp, doanh thu, sĩ số, điểm danh...) HOẶC ra lệnh THU HỌC PHÍ / ĐIỂM DANH. Bạn GỌI CÔNG CỤ phù hợp để lấy/ghi dữ liệu THẬT. TUYỆT ĐỐI không bịa số liệu — luôn dựa vào kết quả công cụ.
+
+BÁO KẾT QUẢ TRUNG THỰC: Sau khi gọi công cụ ghi (mark_paid, save_attendance), CHỈ báo "đã xong" nếu kết quả trả về có ok=true. Nếu ok=false hoặc có error, phải nói RÕ là CHƯA ghi được và nêu lý do — TUYỆT ĐỐI không tự nhận đã đóng/đã lưu khi công cụ báo lỗi. Khi ghi nhiều em cùng lúc, chỉ liệt kê "đã đóng/đã lưu" những em có ok=true.
 
 BẠN LÀM ĐƯỢC:
 - Tra cứu (đọc): nợ, đã nộp, doanh thu, sĩ số, thống kê vắng...
@@ -602,7 +613,7 @@ export async function POST(req: Request) {
   const sysInstruction = { parts: [{ text: systemPrompt() }] };
 
   // Vòng lặp function-calling: model gọi hàm → ta chạy → trả kết quả → lặp tới khi có câu trả lời chữ
-  for (let i = 0; i < 6; i++) {
+  for (let i = 0; i < 12; i++) {
     const payload = JSON.stringify({
       systemInstruction: sysInstruction,
       contents,
@@ -631,27 +642,32 @@ export async function POST(req: Request) {
     const data = await res.json();
     const modelContent = data.candidates?.[0]?.content;
     const parts = modelContent?.parts || [];
-    const fnCall = parts.find((p: any) => p.functionCall)?.functionCall;
+    // Gemini có thể phát NHIỀU functionCall song song trong 1 lượt (vd đóng phí 3 em) → chạy HẾT
+    const fnCalls = parts.filter((p: any) => p.functionCall).map((p: any) => p.functionCall);
 
-    if (fnCall) {
-      let result: unknown;
-      // Chặn ghi khi chưa có xác nhận rõ ràng ở tin nhắn cuối
-      if ((fnCall.name === 'mark_paid' || fnCall.name === 'save_attendance') && !writeConfirmed) {
-        result = {
-          error: 'chua_xac_nhan',
-          message: 'CHƯA được phép ghi. Hãy TÓM TẮT (tên, lớp, tháng, số tiền) rồi HỎI người dùng xác nhận. Chỉ ghi sau khi người dùng đồng ý.',
-        };
-      } else {
-        try {
-          result = await runTool(fnCall.name, fnCall.args || {});
-        } catch (e) {
-          console.error('[chat] tool error', fnCall.name, e);
-          result = { error: 'tool_failed', message: String(e) };
+    if (fnCalls.length > 0) {
+      const responseParts: any[] = [];
+      for (const fc of fnCalls) {
+        let result: unknown;
+        // Chặn ghi khi chưa có xác nhận rõ ràng ở tin nhắn cuối
+        if ((fc.name === 'mark_paid' || fc.name === 'save_attendance') && !writeConfirmed) {
+          result = {
+            error: 'chua_xac_nhan',
+            message: 'CHƯA được phép ghi. Hãy TÓM TẮT (tên, lớp, tháng, số tiền) rồi HỎI người dùng xác nhận. Chỉ ghi sau khi người dùng đồng ý.',
+          };
+        } else {
+          try {
+            result = await runTool(fc.name, fc.args || {});
+          } catch (e) {
+            console.error('[chat] tool error', fc.name, e);
+            result = { error: 'tool_failed', message: String(e) };
+          }
         }
+        responseParts.push({ functionResponse: { name: fc.name, response: { result } } });
       }
-      // Đẩy lại NGUYÊN content của model (giữ thought_signature — Gemini 3.x bắt buộc)
+      // Đẩy lại NGUYÊN content của model (giữ thought_signature — Gemini 3.x bắt buộc) + toàn bộ kết quả
       contents.push(modelContent);
-      contents.push({ role: 'user', parts: [{ functionResponse: { name: fnCall.name, response: { result } } }] });
+      contents.push({ role: 'user', parts: responseParts });
       continue;
     }
 
