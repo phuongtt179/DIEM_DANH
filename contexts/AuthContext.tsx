@@ -32,6 +32,7 @@ const rolePermissions: { [role: string]: string[] } = {
     'manage_payments',
     'manage_users',
     'manage_assistants',
+    'use_ai_chat',
   ],
   teacher: [
     'view_dashboard',

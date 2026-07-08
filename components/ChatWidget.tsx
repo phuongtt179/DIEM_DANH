@@ -79,7 +79,7 @@ export default function ChatWidget() {
         <button
           onClick={() => setOpen(true)}
           aria-label="Mở trợ lý AI"
-          className="fixed z-50 bottom-20 right-4 lg:bottom-6 lg:right-6 w-14 h-14 rounded-full bg-gradient-to-br from-violet-500 to-indigo-600 text-white shadow-xl flex items-center justify-center hover:scale-105 active:scale-95 transition-transform"
+          className="hidden lg:flex fixed z-50 bottom-6 right-6 w-14 h-14 rounded-full bg-gradient-to-br from-violet-500 to-indigo-600 text-white shadow-xl items-center justify-center hover:scale-105 active:scale-95 transition-transform"
         >
           <Bot size={26} />
         </button>
