@@ -209,6 +209,84 @@ async function toolGetRevenue(args: { period: 'month' | 'quarter' | 'year'; valu
   };
 }
 
+// Danh sách các khoản THỰC THU trong 1 tháng (lọc theo paid_date — khớp tab "Danh sách nộp phí"). Dùng cho báo cáo thuế.
+async function toolGetCollections(args: { month: string; class_name?: string }) {
+  const month = args.month || currentMonth();
+  const [year, mo] = month.split('-');
+  const startDate = `${month}-01`;
+  const lastDay = new Date(parseInt(year), parseInt(mo), 0).getDate();
+  const endDate = `${month}-${String(lastDay).padStart(2, '0')}`;
+
+  let query = supabase
+    .from('payments')
+    .select('amount, paid_date, month, students ( name ), classes ( name )')
+    .eq('status', 'paid')
+    .gte('paid_date', startDate)
+    .lte('paid_date', endDate)
+    .order('paid_date', { ascending: true });
+
+  if (args.class_name) {
+    const r = await resolveClass(args.class_name);
+    if (!r.one) return { need_clarification: true, matches: (r.matches || []).map((c: any) => c.name) };
+    query = query.eq('class_id', r.one.id);
+  }
+
+  const { data } = await query;
+  const list = (data || []).map((p: any) => ({
+    ten: p.students?.name,
+    lop: p.classes?.name,
+    so_tien: p.amount,
+    ngay_thu: p.paid_date,
+    hoc_phi_thang: p.month,
+  }));
+  return {
+    thang_thu: month,
+    so_luot: list.length,
+    tong_thuc_thu: list.reduce((s: number, p: any) => s + (p.so_tien || 0), 0),
+    danh_sach: list,
+  };
+}
+
+// Tổng số tiền 1 học sinh đã nộp cho trung tâm từ đầu đến giờ (mọi lớp, mọi tháng).
+async function toolStudentTotalPaid(args: { name: string }) {
+  const kw = (args.name || '').trim().toLowerCase();
+  if (!kw) return { found: 0 };
+  const { data: students } = await supabase.from('students').select('id, name');
+  const matched = (students || []).filter((s: any) => s.name.toLowerCase().includes(kw));
+  if (matched.length === 0) return { found: 0 };
+
+  if (matched.length > 1) {
+    const ids = matched.map((s: any) => s.id);
+    const { data: rels } = await supabase
+      .from('student_classes')
+      .select('student_id, classes ( name )')
+      .in('student_id', ids)
+      .eq('is_primary', true);
+    return {
+      need_clarification: true,
+      matches: matched.map((s: any) => ({
+        ten: s.name,
+        lop: ((rels || []).find((r: any) => r.student_id === s.id) as any)?.classes?.name || '?',
+      })),
+    };
+  }
+
+  const s = matched[0];
+  const { data: pays } = await supabase
+    .from('payments')
+    .select('amount, month, paid_date, classes ( name )')
+    .eq('student_id', s.id)
+    .eq('status', 'paid')
+    .order('month', { ascending: true });
+
+  return {
+    ten: s.name,
+    so_lan_nop: (pays || []).length,
+    tong_da_nop: (pays || []).reduce((sum: number, p: any) => sum + (p.amount || 0), 0),
+    chi_tiet: (pays || []).map((p: any) => ({ thang: p.month, lop: p.classes?.name, so_tien: p.amount, ngay_thu: p.paid_date })),
+  };
+}
+
 // Doanh thu theo TỪNG LỚP trong 1 tháng (cộng server-side, khớp trang Thống kê học phí theo lớp).
 async function toolRevenueByClass(args: { month: string }) {
   const month = args.month || currentMonth();
@@ -541,6 +619,8 @@ async function runTool(name: string, args: any): Promise<unknown> {
     case 'get_payments': return toolGetPayments(args);
     case 'get_revenue': return toolGetRevenue(args);
     case 'get_revenue_by_class': return toolRevenueByClass(args);
+    case 'get_collections': return toolGetCollections(args);
+    case 'get_student_total_paid': return toolStudentTotalPaid(args);
     case 'get_attendance_summary': return toolAttendanceSummary(args);
     case 'find_students': return toolFindStudents(args);
     case 'mark_paid': return toolMarkPaid(args);
@@ -607,11 +687,32 @@ const TOOLS = [{
     },
     {
       name: 'get_revenue_by_class',
-      description: 'Doanh thu (tiền đã thu) của TỪNG LỚP trong 1 tháng. DÙNG công cụ này khi người dùng hỏi doanh thu theo từng lớp — KHÔNG tự cộng tay từ get_payments.',
+      description: 'Doanh thu của TỪNG LỚP trong 1 tháng, tính theo THÁNG HỌC PHÍ (không kể ngày thu). Dùng khi hỏi "doanh thu từng lớp tháng X". KHÔNG tự cộng tay từ get_payments.',
       parameters: {
         type: 'object',
-        properties: { month: { type: 'string', description: 'Tháng, dạng YYYY-MM' } },
+        properties: { month: { type: 'string', description: 'Tháng học phí, dạng YYYY-MM' } },
         required: ['month'],
+      },
+    },
+    {
+      name: 'get_collections',
+      description: 'Danh sách các khoản THỰC THU trong 1 tháng, lọc theo NGÀY THU thực tế (paid_date) — dùng cho BÁO CÁO THUẾ ("tháng X thu được bao nhiêu/những khoản nào"). Khác get_revenue_by_class (theo tháng học phí).',
+      parameters: {
+        type: 'object',
+        properties: {
+          month: { type: 'string', description: 'Tháng thu tiền, dạng YYYY-MM' },
+          class_name: { type: 'string', description: 'Lọc theo lớp (tùy chọn)' },
+        },
+        required: ['month'],
+      },
+    },
+    {
+      name: 'get_student_total_paid',
+      description: 'Tổng số tiền MỘT học sinh đã nộp cho trung tâm từ trước đến nay (mọi lớp, mọi tháng), kèm chi tiết từng lần.',
+      parameters: {
+        type: 'object',
+        properties: { name: { type: 'string', description: 'Tên (một phần) học sinh' } },
+        required: ['name'],
       },
     },
     {
