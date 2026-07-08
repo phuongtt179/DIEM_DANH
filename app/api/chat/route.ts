@@ -92,13 +92,19 @@ async function computeDebts(months: string[], classNameFilter?: string) {
     .select(`enrolled_at, students ( id, name ), classes ( id, name, tuition, status )`)
     .eq('charge_fee', true);
 
-  const { data: paid } = await supabase
+  const { data: pays } = await supabase
     .from('payments')
-    .select('student_id, class_id, month')
-    .eq('status', 'paid')
+    .select('student_id, class_id, month, status, amount')
     .in('month', months);
 
-  const paidSet = new Set((paid || []).map((p: any) => `${p.student_id}-${p.class_id}-${p.month}`));
+  const paidSet = new Set(
+    (pays || []).filter((p: any) => p.status === 'paid')
+      .map((p: any) => `${p.student_id}-${p.class_id}-${p.month}`)
+  );
+  // Số tiền tùy chỉnh cho dòng chưa đóng (em vào giữa tháng...)
+  const customAmount = new Map<string, number>();
+  (pays || []).filter((p: any) => p.status === 'unpaid')
+    .forEach((p: any) => customAmount.set(`${p.student_id}-${p.class_id}-${p.month}`, p.amount));
   // classNameFilter đã được resolveClass chuẩn hóa về đúng 1 tên lớp → so khớp CHÍNH XÁC
   const norm = (s: string) => s.trim().toLowerCase().replace(/\s+/g, ' ');
   const kw = classNameFilter ? norm(classNameFilter) : '';
@@ -114,7 +120,7 @@ async function computeDebts(months: string[], classNameFilter?: string) {
       if (month < enrolledMonth) continue;
       const key = `${st.id}-${cls.id}-${month}`;
       if (!paidSet.has(key)) {
-        debts.push({ name: st.name, class: cls.name, month, amount: cls.tuition || 0 });
+        debts.push({ name: st.name, class: cls.name, month, amount: customAmount.has(key) ? customAmount.get(key)! : (cls.tuition || 0) });
       }
     }
   }

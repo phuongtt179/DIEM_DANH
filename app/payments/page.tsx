@@ -323,6 +323,61 @@ function PaymentsContent() {
     }
   }
 
+  // Lưu số tiền tùy chỉnh cho học sinh CHƯA đóng (vd em vào giữa tháng = 300k)
+  // Tạo/sửa 1 dòng payments status='unpaid' với amount tùy chỉnh, không set paid_date.
+  async function saveUnpaidAmount() {
+    if (!editingPayment) return;
+    const amount = parseFloat(paymentForm.amount);
+    if (isNaN(amount) || amount < 0) { alert('Số tiền không hợp lệ'); return; }
+    try {
+      setSaving(true);
+
+      const { data: existing } = await supabase
+        .from('payments')
+        .select('id')
+        .eq('student_id', editingPayment.studentId)
+        .eq('class_id', selectedClassId)
+        .eq('month', selectedMonth)
+        .single();
+
+      if (existing) {
+        await supabase.from('payments').update({
+          status: 'unpaid',
+          amount,
+          paid_date: null,
+          note: paymentForm.note || null,
+        }).eq('id', existing.id);
+      } else {
+        await supabase.from('payments').insert([{
+          student_id: editingPayment.studentId,
+          class_id: selectedClassId,
+          month: selectedMonth,
+          amount,
+          sessions: parseInt(paymentForm.sessions) || 0,
+          paid_date: null,
+          status: 'unpaid',
+          note: paymentForm.note || null,
+        }]);
+      }
+
+      setPaymentRecords(records =>
+        records.map(r =>
+          r.studentId === editingPayment.studentId
+            ? { ...r, status: 'unpaid', amount, paidDate: null, note: paymentForm.note || null }
+            : r
+        )
+      );
+
+      alert('Đã lưu số tiền (giữ trạng thái chưa đóng)!');
+      closeModal();
+    } catch (error) {
+      console.error('Error saving unpaid amount:', error);
+      alert('Lỗi khi lưu số tiền');
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function markAsUnpaid(studentId: string) {
     try {
       setSaving(true);
@@ -680,6 +735,16 @@ function PaymentsContent() {
                     className="w-full px-4 lg:px-6 py-2 lg:py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors font-semibold disabled:bg-gray-300 text-sm lg:text-base"
                   >
                     Đánh dấu chưa đóng
+                  </button>
+                )}
+                {editingPayment.status === 'unpaid' && (
+                  <button
+                    type="button"
+                    onClick={saveUnpaidAmount}
+                    disabled={saving}
+                    className="w-full px-4 lg:px-6 py-2 lg:py-3 bg-amber-500 text-white rounded-lg hover:bg-amber-600 transition-colors font-semibold disabled:bg-gray-300 text-sm lg:text-base"
+                  >
+                    Chỉ lưu số tiền (giữ chưa đóng)
                   </button>
                 )}
                 <div className="flex gap-3">

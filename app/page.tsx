@@ -220,11 +220,11 @@ export default function DashboardPage() {
 
       if (studentsError) throw studentsError;
 
-      // Get all paid payments for these months
-      const { data: paidPayments, error: paymentsError } = await supabase
+      // Get all payments (paid + unpaid) for these months.
+      // Paid → không nợ. Unpaid có amount tùy chỉnh → dùng số đó thay học phí lớp.
+      const { data: allPayments, error: paymentsError } = await supabase
         .from('payments')
-        .select('student_id, class_id, month')
-        .eq('status', 'paid')
+        .select('student_id, class_id, month, status, amount')
         .gte('month', startMonth)
         .lt('month', currentMonth);
 
@@ -232,8 +232,15 @@ export default function DashboardPage() {
 
       // Key includes class_id so a student can owe multiple classes in the same month
       const paidSet = new Set(
-        (paidPayments || []).map((p: any) => `${p.student_id}-${p.class_id}-${p.month}`)
+        (allPayments || [])
+          .filter((p: any) => p.status === 'paid')
+          .map((p: any) => `${p.student_id}-${p.class_id}-${p.month}`)
       );
+      // Số tiền tùy chỉnh cho các dòng chưa đóng
+      const customAmount = new Map<string, number>();
+      (allPayments || [])
+        .filter((p: any) => p.status === 'unpaid')
+        .forEach((p: any) => customAmount.set(`${p.student_id}-${p.class_id}-${p.month}`, p.amount));
 
       // Find students without paid records for each month (only from enrollment month)
       const debts: DebtRecord[] = [];
@@ -258,7 +265,7 @@ export default function DashboardPage() {
               className: classInfo.name,
               classId: classInfo.id,
               month: month,
-              amount: classInfo.tuition || 0,
+              amount: customAmount.has(key) ? customAmount.get(key)! : (classInfo.tuition || 0),
               studentNote: student.note || null,
             });
           }
