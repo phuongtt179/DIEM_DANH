@@ -10,8 +10,8 @@ type Msg = { role: 'user' | 'ai'; content: string };
 const SUGGESTIONS = [
   'Ai đang nợ học phí?',
   'Doanh thu tháng này bao nhiêu?',
-  'Danh sách nộp phí lớp Cầu Lông tháng này',
   'Em ... lớp ... đóng học phí tháng này',
+  'Lớp ... hôm nay em ... vắng',
 ];
 
 export default function ChatPage() {
@@ -86,7 +86,7 @@ export default function ChatPage() {
         </div>
         <div>
           <h1 className="font-black text-lg leading-tight">Trợ lý lớp học</h1>
-          <p className="text-white/80 text-xs">Tra cứu nợ/doanh thu/sĩ số & thu học phí bằng lệnh (đang thử nghiệm)</p>
+          <p className="text-white/80 text-xs">Tra cứu, thu học phí & điểm danh bằng lệnh (đang thử nghiệm)</p>
         </div>
       </div>
 

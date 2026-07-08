@@ -320,6 +320,76 @@ async function toolMarkPaid(args: { student_id: string; class_id: string; month?
   return { ok: true, ten: st?.name, lop: cls?.name, thang: month, so_tien: amount, ngay_dong: todayStr(), ghi_chu: args.note ?? null };
 }
 
+// ---- Công cụ điểm danh (Giai đoạn 3) ----
+
+// Lấy danh sách học sinh 1 lớp kèm trạng thái điểm danh của 1 ngày (để xác định đúng em vắng trước khi ghi).
+async function toolGetRoster(args: { class_name: string; date?: string }) {
+  const r = await resolveClass(args.class_name);
+  if (!r.one) return { need_clarification: true, matches: (r.matches || []).map((c: any) => c.name) };
+  const date = args.date || todayStr();
+
+  const { data: rels } = await supabase
+    .from('student_classes')
+    .select('students ( id, name, status )')
+    .eq('class_id', r.one.id);
+  const students = (rels || []).map((x: any) => x.students).filter((s: any) => s && s.status !== 'on_leave');
+
+  const { data: existing } = await supabase
+    .from('attendance')
+    .select('student_id, status')
+    .eq('class_id', r.one.id)
+    .eq('date', date);
+  const stMap = new Map((existing || []).map((a: any) => [a.student_id, a.status]));
+
+  return {
+    class_id: r.one.id,
+    lop: r.one.name,
+    ngay: date,
+    si_so: students.length,
+    hoc_sinh: students.map((s: any) => ({
+      student_id: s.id,
+      ten: s.name,
+      trang_thai: stMap.get(s.id) === 'absent' ? 'vắng' : stMap.get(s.id) === 'present' ? 'có mặt' : 'chưa điểm danh',
+    })),
+  };
+}
+
+// Lưu điểm danh: các em trong absent_student_ids = vắng, còn lại = có mặt, cho 1 ngày. CHỈ gọi sau khi xác nhận.
+async function toolSaveAttendance(args: { class_id: string; date?: string; absent_student_ids?: string[] }) {
+  const date = args.date || todayStr();
+  if (!args.class_id) return { error: 'thiếu class_id — hãy dùng get_class_roster trước' };
+  const absentSet = new Set(args.absent_student_ids || []);
+
+  const { data: rels } = await supabase
+    .from('student_classes')
+    .select('students ( id, name, status )')
+    .eq('class_id', args.class_id);
+  const students = (rels || []).map((x: any) => x.students).filter((s: any) => s && s.status !== 'on_leave');
+  if (students.length === 0) return { error: 'lớp không có học sinh' };
+
+  const { data: existing } = await supabase
+    .from('attendance')
+    .select('id, student_id')
+    .eq('class_id', args.class_id)
+    .eq('date', date);
+  const existMap = new Map((existing || []).map((a: any) => [a.student_id, a.id]));
+
+  const absentNames: string[] = [];
+  for (const st of students) {
+    const status = absentSet.has(st.id) ? 'absent' : 'present';
+    if (status === 'absent') absentNames.push(st.name);
+    const eid = existMap.get(st.id);
+    if (eid) {
+      await supabase.from('attendance').update({ status }).eq('id', eid);
+    } else {
+      await supabase.from('attendance').insert([{ student_id: st.id, class_id: args.class_id, date, status, note: '' }]);
+    }
+  }
+
+  const { data: cls } = await supabase.from('classes').select('name').eq('id', args.class_id).single();
+  return { ok: true, lop: cls?.name, ngay: date, si_so: students.length, so_vang: absentNames.length, vang: absentNames };
+}
+
 // Bảng điều phối tên công cụ → hàm
 async function runTool(name: string, args: any): Promise<unknown> {
   switch (name) {
@@ -331,6 +401,8 @@ async function runTool(name: string, args: any): Promise<unknown> {
     case 'get_attendance_summary': return toolAttendanceSummary(args);
     case 'find_students': return toolFindStudents(args);
     case 'mark_paid': return toolMarkPaid(args);
+    case 'get_class_roster': return toolGetRoster(args);
+    case 'save_attendance': return toolSaveAttendance(args);
     default: return { error: `unknown_tool: ${name}` };
   }
 }
@@ -427,6 +499,35 @@ const TOOLS = [{
         required: ['student_id', 'class_id'],
       },
     },
+    {
+      name: 'get_class_roster',
+      description: 'Lấy danh sách học sinh 1 lớp kèm trạng thái điểm danh của 1 ngày. DÙNG TRƯỚC khi điểm danh để lấy student_id các em và xác định đúng em vắng.',
+      parameters: {
+        type: 'object',
+        properties: {
+          class_name: { type: 'string', description: 'Tên lớp' },
+          date: { type: 'string', description: 'Ngày, dạng YYYY-MM-DD (mặc định hôm nay)' },
+        },
+        required: ['class_name'],
+      },
+    },
+    {
+      name: 'save_attendance',
+      description: 'Lưu điểm danh 1 buổi: các em trong absent_student_ids = VẮNG, tất cả em còn lại trong lớp = CÓ MẶT. CHỈ gọi SAU KHI người dùng đã xác nhận. class_id và student_id lấy từ get_class_roster.',
+      parameters: {
+        type: 'object',
+        properties: {
+          class_id: { type: 'string', description: 'ID lớp (từ get_class_roster)' },
+          date: { type: 'string', description: 'Ngày, dạng YYYY-MM-DD (mặc định hôm nay)' },
+          absent_student_ids: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Danh sách student_id các em VẮNG. Rỗng nếu cả lớp đi học đủ.',
+          },
+        },
+        required: ['class_id', 'absent_student_ids'],
+      },
+    },
   ],
 }];
 
@@ -440,7 +541,8 @@ NHIỆM VỤ: Người dùng hỏi về dữ liệu lớp học (nợ học phí
 BẠN LÀM ĐƯỢC:
 - Tra cứu (đọc): nợ, đã nộp, doanh thu, sĩ số, thống kê vắng...
 - THU HỌC PHÍ (ghi): đánh dấu học sinh đã đóng.
-Riêng ĐIỂM DANH (ghi) thì CHƯA làm được — nếu người dùng yêu cầu điểm danh/thêm/sửa/xóa học sinh/lớp, lịch sự nói tính năng đó đang phát triển.
+- ĐIỂM DANH (ghi): đánh dấu buổi học ai vắng.
+Nếu người dùng yêu cầu thêm/sửa/xóa học sinh/lớp, lịch sự nói tính năng đó đang phát triển.
 
 QUY TRÌNH THU HỌC PHÍ (bắt buộc theo đúng thứ tự, RẤT QUAN TRỌNG):
 1. Gọi find_students để tìm đúng em (kèm lớp, học phí, trạng thái tháng).
@@ -450,6 +552,14 @@ QUY TRÌNH THU HỌC PHÍ (bắt buộc theo đúng thứ tự, RẤT QUAN TRỌ
 5. CHỈ gọi mark_paid SAU KHI người dùng xác nhận (ok/đúng/ừ/đồng ý...). TUYỆT ĐỐI không gọi mark_paid ở lượt chưa có xác nhận.
 6. Mặc định: tháng = tháng hiện tại; số tiền = học phí lớp (trừ khi người dùng nói số khác, ví dụ "đóng 300k").
 7. Ghi xong báo lại ngắn gọn kết quả thật từ công cụ.
+
+QUY TRÌNH ĐIỂM DANH (bắt buộc theo đúng thứ tự):
+1. Gọi get_class_roster (theo tên lớp + ngày) để lấy danh sách học sinh và student_id.
+2. Xác định các em VẮNG theo tên người dùng nói, map sang student_id trong roster. Nếu một tên KHÔNG có trong lớp hoặc mơ hồ (nhiều em trùng) → hỏi lại, đừng đoán bừa.
+3. Mặc định ngày = HÔM NAY, trừ khi người dùng nói ngày khác.
+4. TÓM TẮT trước khi ghi: "Điểm danh [Lớp] ngày [d/m]: VẮNG [tên các em] ([n] em); còn lại [si_so - n] em có mặt. OK chứ?" rồi DỪNG chờ đồng ý.
+5. CHỈ gọi save_attendance SAU KHI người dùng xác nhận. Truyền absent_student_ids là student_id các em vắng (rỗng nếu cả lớp đi đủ).
+6. Ghi xong báo lại ngắn gọn: lớp, ngày, số em vắng (kèm tên), số em có mặt.
 
 QUY TẮC TRÌNH BÀY (rất quan trọng):
 - Trả lời bằng tiếng Việt, ngắn gọn, dạng DANH SÁCH mỗi em một dòng.
@@ -526,7 +636,7 @@ export async function POST(req: Request) {
     if (fnCall) {
       let result: unknown;
       // Chặn ghi khi chưa có xác nhận rõ ràng ở tin nhắn cuối
-      if (fnCall.name === 'mark_paid' && !writeConfirmed) {
+      if ((fnCall.name === 'mark_paid' || fnCall.name === 'save_attendance') && !writeConfirmed) {
         result = {
           error: 'chua_xac_nhan',
           message: 'CHƯA được phép ghi. Hãy TÓM TẮT (tên, lớp, tháng, số tiền) rồi HỎI người dùng xác nhận. Chỉ ghi sau khi người dùng đồng ý.',
