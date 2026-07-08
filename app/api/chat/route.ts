@@ -236,6 +236,90 @@ async function toolAttendanceSummary(args: { class_name: string; month: string }
   };
 }
 
+// ---- Công cụ GHI: thu phí (Giai đoạn 2) ----
+
+// Tìm học sinh (kèm các lớp có thu phí + trạng thái đóng tháng) để xác định đúng đối tượng trước khi ghi.
+async function toolFindStudents(args: { name: string; class_name?: string; month?: string }) {
+  const month = args.month || currentMonth();
+  const kw = (args.name || '').trim().toLowerCase();
+  if (!kw) return { found: 0 };
+  const norm = (s: string) => s.trim().toLowerCase().replace(/\s+/g, ' ');
+
+  const { data: rels } = await supabase
+    .from('student_classes')
+    .select('charge_fee, students ( id, name, status ), classes ( id, name, tuition, status )')
+    .eq('charge_fee', true);
+
+  let list = (rels || []).filter((r: any) =>
+    r.students && r.classes &&
+    r.students.name.toLowerCase().includes(kw) &&
+    r.classes.status !== 'locked' &&
+    r.students.status !== 'on_leave'
+  );
+  if (args.class_name) {
+    const cn = norm(args.class_name);
+    const exact = list.filter((r: any) => norm(r.classes.name) === cn);
+    list = exact.length ? exact : list.filter((r: any) => norm(r.classes.name).includes(cn));
+  }
+  if (list.length === 0) return { found: 0, month };
+
+  const studentIds = [...new Set(list.map((r: any) => r.students.id))];
+  const { data: pays } = await supabase
+    .from('payments')
+    .select('student_id, class_id, status, amount')
+    .eq('month', month)
+    .in('student_id', studentIds);
+  const payMap = new Map<string, any>();
+  (pays || []).forEach((p: any) => payMap.set(`${p.student_id}-${p.class_id}`, p));
+
+  return {
+    month,
+    matches: list.map((r: any) => {
+      const p = payMap.get(`${r.students.id}-${r.classes.id}`);
+      return {
+        student_id: r.students.id,
+        ten: r.students.name,
+        class_id: r.classes.id,
+        lop: r.classes.name,
+        hoc_phi_lop: r.classes.tuition,
+        trang_thai_thang: p?.status === 'paid' ? 'đã đóng' : 'chưa đóng',
+        so_tien_hien_tai: p?.amount ?? r.classes.tuition,
+      };
+    }),
+  };
+}
+
+// Ghi "đã đóng" cho 1 học sinh ở 1 lớp trong 1 tháng. CHỈ gọi sau khi người dùng đã xác nhận.
+async function toolMarkPaid(args: { student_id: string; class_id: string; month?: string; amount?: number; note?: string }) {
+  const month = args.month || currentMonth();
+  if (!args.student_id || !args.class_id) return { error: 'thiếu student_id hoặc class_id — hãy dùng find_students trước' };
+
+  const { data: cls } = await supabase.from('classes').select('name, tuition').eq('id', args.class_id).single();
+  const amount = typeof args.amount === 'number' ? args.amount : (cls?.tuition ?? 0);
+
+  const { data: existing } = await supabase
+    .from('payments')
+    .select('id')
+    .eq('student_id', args.student_id)
+    .eq('class_id', args.class_id)
+    .eq('month', month)
+    .single();
+
+  if (existing) {
+    await supabase.from('payments').update({
+      status: 'paid', amount, paid_date: todayStr(), note: args.note ?? null,
+    }).eq('id', existing.id);
+  } else {
+    await supabase.from('payments').insert([{
+      student_id: args.student_id, class_id: args.class_id, month,
+      amount, sessions: 0, paid_date: todayStr(), status: 'paid', note: args.note ?? null,
+    }]);
+  }
+
+  const { data: st } = await supabase.from('students').select('name').eq('id', args.student_id).single();
+  return { ok: true, ten: st?.name, lop: cls?.name, thang: month, so_tien: amount, ngay_dong: todayStr(), ghi_chu: args.note ?? null };
+}
+
 // Bảng điều phối tên công cụ → hàm
 async function runTool(name: string, args: any): Promise<unknown> {
   switch (name) {
@@ -245,6 +329,8 @@ async function runTool(name: string, args: any): Promise<unknown> {
     case 'get_payments': return toolGetPayments(args);
     case 'get_revenue': return toolGetRevenue(args);
     case 'get_attendance_summary': return toolAttendanceSummary(args);
+    case 'find_students': return toolFindStudents(args);
+    case 'mark_paid': return toolMarkPaid(args);
     default: return { error: `unknown_tool: ${name}` };
   }
 }
@@ -313,6 +399,34 @@ const TOOLS = [{
         required: ['class_name'],
       },
     },
+    {
+      name: 'find_students',
+      description: 'Tìm học sinh theo tên (kèm các lớp có thu phí, học phí lớp, và trạng thái đóng của tháng). DÙNG TRƯỚC khi thu phí để xác định đúng em và đúng lớp.',
+      parameters: {
+        type: 'object',
+        properties: {
+          name: { type: 'string', description: 'Tên (một phần) của học sinh' },
+          class_name: { type: 'string', description: 'Tên lớp để thu hẹp (tùy chọn)' },
+          month: { type: 'string', description: 'Tháng cần xem trạng thái, dạng YYYY-MM (mặc định tháng hiện tại)' },
+        },
+        required: ['name'],
+      },
+    },
+    {
+      name: 'mark_paid',
+      description: 'Đánh dấu học sinh ĐÃ ĐÓNG học phí. CHỈ gọi SAU KHI người dùng đã xác nhận. student_id và class_id phải lấy từ find_students.',
+      parameters: {
+        type: 'object',
+        properties: {
+          student_id: { type: 'string', description: 'ID học sinh (từ find_students)' },
+          class_id: { type: 'string', description: 'ID lớp (từ find_students)' },
+          month: { type: 'string', description: 'Tháng đóng, dạng YYYY-MM (mặc định tháng hiện tại)' },
+          amount: { type: 'number', description: 'Số tiền. Bỏ trống = học phí lớp.' },
+          note: { type: 'string', description: 'Ghi chú (tùy chọn)' },
+        },
+        required: ['student_id', 'class_id'],
+      },
+    },
   ],
 }];
 
@@ -321,9 +435,21 @@ function systemPrompt(): string {
 
 Hôm nay là ${todayStr()} (tháng hiện tại: ${currentMonth()}).
 
-NHIỆM VỤ: Người dùng hỏi về dữ liệu lớp học (nợ học phí, ai đã nộp, doanh thu, sĩ số, điểm danh...). Bạn GỌI CÔNG CỤ phù hợp để lấy dữ liệu THẬT rồi trả lời. TUYỆT ĐỐI không bịa số liệu — luôn dựa vào kết quả công cụ.
+NHIỆM VỤ: Người dùng hỏi về dữ liệu lớp học (nợ học phí, ai đã nộp, doanh thu, sĩ số, điểm danh...) HOẶC ra lệnh THU HỌC PHÍ. Bạn GỌI CÔNG CỤ phù hợp để lấy/ghi dữ liệu THẬT. TUYỆT ĐỐI không bịa số liệu — luôn dựa vào kết quả công cụ.
 
-Giai đoạn này CHỈ TRA CỨU (đọc). Nếu người dùng yêu cầu thêm/sửa/xóa/đánh dấu đã đóng/điểm danh, hãy lịch sự nói rằng tính năng thực thi đang được phát triển, hiện chỉ tra cứu được.
+BẠN LÀM ĐƯỢC:
+- Tra cứu (đọc): nợ, đã nộp, doanh thu, sĩ số, thống kê vắng...
+- THU HỌC PHÍ (ghi): đánh dấu học sinh đã đóng.
+Riêng ĐIỂM DANH (ghi) thì CHƯA làm được — nếu người dùng yêu cầu điểm danh/thêm/sửa/xóa học sinh/lớp, lịch sự nói tính năng đó đang phát triển.
+
+QUY TRÌNH THU HỌC PHÍ (bắt buộc theo đúng thứ tự, RẤT QUAN TRỌNG):
+1. Gọi find_students để tìm đúng em (kèm lớp, học phí, trạng thái tháng).
+2. Nếu KHÔNG tìm thấy → báo người dùng. Nếu có NHIỀU em trùng tên → liệt kê cho người dùng chọn. Nếu em thuộc NHIỀU lớp thu phí mà chưa rõ lớp nào → hỏi lớp nào.
+3. Nếu em đó ở tháng này ĐÃ đóng rồi → báo cho người dùng biết, hỏi có muốn ghi đè không.
+4. TÓM TẮT rõ trước khi ghi: "Xác nhận: [Tên] — [Lớp] — T[tháng]/[năm] — [số tiền]đ[ — ghi chú nếu có] → đánh dấu ĐÃ ĐÓNG. OK chứ?" rồi DỪNG LẠI chờ người dùng đồng ý.
+5. CHỈ gọi mark_paid SAU KHI người dùng xác nhận (ok/đúng/ừ/đồng ý...). TUYỆT ĐỐI không gọi mark_paid ở lượt chưa có xác nhận.
+6. Mặc định: tháng = tháng hiện tại; số tiền = học phí lớp (trừ khi người dùng nói số khác, ví dụ "đóng 300k").
+7. Ghi xong báo lại ngắn gọn kết quả thật từ công cụ.
 
 QUY TẮC TRÌNH BÀY (rất quan trọng):
 - Trả lời bằng tiếng Việt, ngắn gọn, dạng DANH SÁCH mỗi em một dòng.
@@ -349,6 +475,13 @@ export async function POST(req: Request) {
 
   const keys = getGeminiKeys();
   if (!keys.length) return Response.json({ error: 'no_api_key' }, { status: 500 });
+
+  // Chốt chặn ghi: chỉ cho mark_paid chạy khi tin nhắn CUỐI của người dùng là lời đồng ý.
+  // Ngăn model tự tìm + ghi trong cùng 1 lượt mà chưa cho người dùng xác nhận.
+  const lastUserMsg = String(messages[messages.length - 1]?.content || '').toLowerCase();
+  const writeConfirmed =
+    !/\b(không|khong|đừng|dung|khỏi|khoi|hủy|huy|thôi|thoi|sai|chưa|chua)\b/.test(lastUserMsg) &&
+    /\b(ok|oke|okê|okay|đồng ý|dong y|đúng|dúng|ừ|ừa|ù|vâng|vang|có|co|yes|chốt|chot|xác nhận|xac nhan|được|duoc|đc|ừm|um)\b/.test(lastUserMsg);
 
   // messages: [{ role:'user'|'ai', content }]
   const contents: any[] = messages.map((m: any) => ({
@@ -392,11 +525,19 @@ export async function POST(req: Request) {
 
     if (fnCall) {
       let result: unknown;
-      try {
-        result = await runTool(fnCall.name, fnCall.args || {});
-      } catch (e) {
-        console.error('[chat] tool error', fnCall.name, e);
-        result = { error: 'tool_failed', message: String(e) };
+      // Chặn ghi khi chưa có xác nhận rõ ràng ở tin nhắn cuối
+      if (fnCall.name === 'mark_paid' && !writeConfirmed) {
+        result = {
+          error: 'chua_xac_nhan',
+          message: 'CHƯA được phép ghi. Hãy TÓM TẮT (tên, lớp, tháng, số tiền) rồi HỎI người dùng xác nhận. Chỉ ghi sau khi người dùng đồng ý.',
+        };
+      } else {
+        try {
+          result = await runTool(fnCall.name, fnCall.args || {});
+        } catch (e) {
+          console.error('[chat] tool error', fnCall.name, e);
+          result = { error: 'tool_failed', message: String(e) };
+        }
       }
       // Đẩy lại NGUYÊN content của model (giữ thought_signature — Gemini 3.x bắt buộc)
       contents.push(modelContent);

@@ -11,7 +11,7 @@ const SUGGESTIONS = [
   'Ai đang nợ học phí?',
   'Doanh thu tháng này bao nhiêu?',
   'Danh sách nộp phí lớp Cầu Lông tháng này',
-  'Lớp D1 có mấy học sinh?',
+  'Em ... lớp ... đóng học phí tháng này',
 ];
 
 export default function ChatPage() {
@@ -85,8 +85,8 @@ export default function ChatPage() {
           <Sparkles size={20} />
         </div>
         <div>
-          <h1 className="font-black text-lg leading-tight">Trợ lý tra cứu</h1>
-          <p className="text-white/80 text-xs">Hỏi về nợ học phí, doanh thu, sĩ số, điểm danh… (đang thử nghiệm)</p>
+          <h1 className="font-black text-lg leading-tight">Trợ lý lớp học</h1>
+          <p className="text-white/80 text-xs">Tra cứu nợ/doanh thu/sĩ số & thu học phí bằng lệnh (đang thử nghiệm)</p>
         </div>
       </div>
 
