@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   Home,
   BookOpen,
@@ -44,63 +44,87 @@ export default function Sidebar() {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const { user, logout, hasPermission } = useAuth();
 
-  // Filter nav items based on permissions
   const navItems = allNavItems.filter(item => hasPermission(item.permission));
 
-  // Mobile nav items - filter and limit to 4
-  const mobileNavItems = navItems
-    .filter(item => ['/', '/attendance', '/payments', '/statistics'].includes(item.href))
-    .slice(0, 4);
+  // Vuốt từ MÉP PHẢI để mở sidebar (mobile). Vuốt sang phải trên drawer để đóng.
+  useEffect(() => {
+    let startX = 0, startY = 0, fromRightEdge = false;
+    const onStart = (e: TouchEvent) => {
+      const t = e.touches[0];
+      startX = t.clientX;
+      startY = t.clientY;
+      fromRightEdge = t.clientX > window.innerWidth - 28;
+    };
+    const onEnd = (e: TouchEvent) => {
+      const t = e.changedTouches[0];
+      const dx = t.clientX - startX;
+      const dy = Math.abs(t.clientY - startY);
+      if (dy > 60) return; // bỏ qua nếu vuốt dọc
+      if (fromRightEdge && dx < -50) setIsMobileMenuOpen(true);   // vuốt trái từ mép phải → mở
+      else if (dx > 60) setIsMobileMenuOpen(false);              // vuốt phải → đóng
+    };
+    document.addEventListener('touchstart', onStart, { passive: true });
+    document.addEventListener('touchend', onEnd, { passive: true });
+    return () => {
+      document.removeEventListener('touchstart', onStart);
+      document.removeEventListener('touchend', onEnd);
+    };
+  }, []);
 
   return (
     <>
-      {/* Mobile Header */}
-      <div className="lg:hidden fixed top-0 left-0 right-0 z-40 bg-gradient-to-r from-blue-600 to-blue-700 text-white px-4 py-3 flex items-center justify-between shadow-lg">
-        <div>
-          <h1 className="text-lg font-bold">Quản lý Lớp học</h1>
-          <p className="text-blue-100 text-xs">{user?.name} - {roleLabels[user?.role || '']}</p>
-        </div>
+      {/* Tab mảnh ở mép phải (mobile) — gợi ý + bấm mở nhanh */}
+      {!isMobileMenuOpen && (
         <button
-          onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
-          className="p-2 hover:bg-white/10 rounded-lg transition-colors"
-        >
-          {isMobileMenuOpen ? <X size={24} /> : <Menu size={24} />}
-        </button>
-      </div>
+          onClick={() => setIsMobileMenuOpen(true)}
+          aria-label="Mở menu"
+          className="lg:hidden fixed z-30 top-1/2 -translate-y-1/2 right-0 w-1.5 h-16 rounded-l-full bg-blue-600/60 active:bg-blue-600"
+        />
+      )}
 
-      {/* Mobile Menu Overlay */}
+      {/* Lớp phủ khi mở drawer (mobile) */}
       {isMobileMenuOpen && (
         <div
-          className="lg:hidden fixed inset-0 bg-black/50 z-30"
+          className="lg:hidden fixed inset-0 bg-black/50 z-40"
           onClick={() => setIsMobileMenuOpen(false)}
         />
       )}
 
-      {/* Desktop Sidebar & Mobile Drawer */}
+      {/* Sidebar: desktop cố định bên trái; mobile là drawer trượt từ PHẢI */}
       <aside
         className={`
-          fixed lg:static inset-y-0 left-0 z-40
+          fixed lg:static inset-y-0 right-0 lg:right-auto lg:left-0 z-50
           w-64 bg-gradient-to-b from-blue-600 to-blue-700 text-white flex flex-col
           transform transition-transform duration-300 ease-in-out
           lg:transform-none
-          ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'}
+          ${isMobileMenuOpen ? 'translate-x-0' : 'translate-x-full'}
           lg:translate-x-0
         `}
       >
-        <div className="p-6 lg:block hidden">
+        <div className="p-6 hidden lg:block">
           <h1 className="text-2xl font-bold">Quản lý Lớp học</h1>
           <p className="text-blue-100 text-sm mt-1">Điểm danh & Học phí</p>
         </div>
 
-        <div className="p-6 lg:hidden">
-          <h1 className="text-xl font-bold">Menu</h1>
+        {/* Đầu drawer trên mobile: tên + nút đóng */}
+        <div className="p-5 lg:hidden flex items-center justify-between">
+          <div className="min-w-0">
+            <h1 className="text-lg font-bold truncate">{user?.name}</h1>
+            <p className="text-blue-100 text-xs">{roleLabels[user?.role || '']}</p>
+          </div>
+          <button
+            onClick={() => setIsMobileMenuOpen(false)}
+            aria-label="Đóng menu"
+            className="p-2 hover:bg-white/10 rounded-lg shrink-0"
+          >
+            <X size={22} />
+          </button>
         </div>
 
         <nav className="flex-1 px-3 overflow-y-auto">
           {navItems.map((item) => {
             const Icon = item.icon;
             const isActive = pathname === item.href;
-
             return (
               <Link
                 key={item.href}
@@ -123,7 +147,6 @@ export default function Sidebar() {
         </nav>
 
         <div className="p-4 border-t border-blue-500">
-          {/* User info */}
           <div className="flex items-center gap-3 px-4 py-2 mb-2">
             <div className="w-8 h-8 bg-white/20 rounded-full flex items-center justify-center">
               <User size={16} />
@@ -134,7 +157,6 @@ export default function Sidebar() {
             </div>
           </div>
 
-          {/* Logout button */}
           <button
             onClick={logout}
             className="flex items-center gap-2 w-full px-4 py-2 text-blue-100 hover:text-white hover:bg-white/10 rounded-lg transition-colors"
@@ -144,34 +166,6 @@ export default function Sidebar() {
           </button>
         </div>
       </aside>
-
-      {/* Mobile Bottom Navigation */}
-      <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-30 bg-white border-t border-gray-200 shadow-lg">
-        <div className="grid grid-cols-4 gap-1">
-          {mobileNavItems.map((item) => {
-            const Icon = item.icon;
-            const isActive = pathname === item.href;
-
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                className={`
-                  flex flex-col items-center justify-center py-2 px-1
-                  transition-colors
-                  ${isActive
-                    ? 'text-blue-600 bg-blue-50'
-                    : 'text-gray-600 hover:bg-gray-50'
-                  }
-                `}
-              >
-                <Icon size={20} />
-                <span className="text-xs mt-1 font-medium">{item.label}</span>
-              </Link>
-            );
-          })}
-        </div>
-      </nav>
     </>
   );
 }
