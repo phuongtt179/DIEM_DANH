@@ -436,13 +436,29 @@ async function toolGetStudentClasses(args: { name: string }) {
 async function toolAddStudent(args: {
   name: string; primary_class: string;
   secondary_classes?: { name: string; charge_fee?: boolean }[];
-  phone?: string; parent_phone?: string; note?: string;
+  phone?: string; parent_phone?: string; note?: string; allow_duplicate?: boolean;
 }) {
   if (!args.name?.trim()) return { ok: false, error: 'thiếu tên học sinh' };
   if (!args.primary_class?.trim()) return { ok: false, error: 'thiếu lớp chính' };
 
   const pr = await resolveClass(args.primary_class);
   if (!pr.one) return { ok: false, need_clarification: true, field: 'lớp chính', matches: (pr.matches || []).map((c: any) => c.name) };
+
+  // Chặn trùng: đã có em CÙNG TÊN trong lớp chính này chưa?
+  const nameNorm = args.name.trim().toLowerCase().replace(/\s+/g, ' ');
+  const { data: clsRels } = await supabase
+    .from('student_classes')
+    .select('students ( name )')
+    .eq('class_id', pr.one.id);
+  const trung = (clsRels || []).some((r: any) =>
+    (r.students?.name || '').trim().toLowerCase().replace(/\s+/g, ' ') === nameNorm);
+  if (trung && !args.allow_duplicate) {
+    return {
+      ok: false,
+      duplicate: true,
+      message: `Đã có học sinh tên "${args.name.trim()}" trong lớp ${pr.one.name}. Nếu bạn muốn thêm MỘT EM KHÁC cùng tên thì nên đặt tên khác để phân biệt (vd thêm biệt danh), rồi xác nhận lại.`,
+    };
+  }
 
   const secResolved: { id: string; name: string; charge_fee: boolean }[] = [];
   for (const sc of (args.secondary_classes || [])) {
@@ -669,6 +685,7 @@ const TOOLS = [{
           phone: { type: 'string', description: 'SĐT học sinh (tùy chọn)' },
           parent_phone: { type: 'string', description: 'SĐT phụ huynh (tùy chọn)' },
           note: { type: 'string', description: 'Ghi chú (tùy chọn)' },
+          allow_duplicate: { type: 'boolean', description: 'Chỉ đặt true khi người dùng đã biết có em trùng tên trong lớp và vẫn muốn thêm một em KHÁC.' },
         },
         required: ['name', 'primary_class'],
       },
@@ -724,10 +741,11 @@ QUY TRÌNH ĐIỂM DANH (bắt buộc theo đúng thứ tự):
 
 QUY TRÌNH THÊM HỌC SINH:
 1. Cần TÊN (bắt buộc) và LỚP CHÍNH (bắt buộc). Lớp chính LUÔN thu phí.
-2. Nếu người dùng nói có LỚP PHỤ: với MỖI lớp phụ phải biết CÓ thu phí hay KHÔNG. Nếu người dùng chưa nói rõ → HỎI lại (ảnh hưởng học phí).
-3. SĐT, SĐT phụ huynh, ghi chú là tùy chọn.
-4. TÓM TẮT: "Thêm [tên] — lớp chính [X] — lớp phụ [Y (thu phí), Z (không thu phí)]... OK?" rồi chờ xác nhận.
-5. CHỈ gọi add_student SAU KHI người dùng xác nhận.
+2. KIỂM TRA TRÙNG TRƯỚC: gọi get_student_classes theo tên. Nếu đã có em CÙNG TÊN đang học ở LỚP CHÍNH định thêm → ĐỪNG thêm, mà nói: "[Tên] đã có trong lớp [X] rồi. Có phải bạn muốn thêm MỘT EM KHÁC cùng tên? Nếu vậy nên đặt tên khác để phân biệt." rồi chờ người dùng làm rõ.
+3. Nếu người dùng nói có LỚP PHỤ: với MỖI lớp phụ phải biết CÓ thu phí hay KHÔNG. Chưa rõ → HỎI lại (ảnh hưởng học phí).
+4. SĐT, SĐT phụ huynh, ghi chú là tùy chọn.
+5. TÓM TẮT: "Thêm [tên] — lớp chính [X] — lớp phụ [Y (thu phí), Z (không thu phí)]... OK?" rồi chờ xác nhận.
+6. CHỈ gọi add_student SAU KHI người dùng xác nhận. Chỉ đặt allow_duplicate=true nếu người dùng đã biết trùng tên và vẫn muốn thêm em khác.
 
 QUY TRÌNH CHUYỂN LỚP:
 1. Gọi get_student_classes để tìm đúng em + lớp chính hiện tại. Trùng tên → hỏi người dùng chọn.
