@@ -4,6 +4,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import { useEffect } from 'react';
 import { AuthProvider, useAuth } from '@/contexts/AuthContext';
 import Sidebar from '@/components/Sidebar';
+import ChatWidget from '@/components/ChatWidget';
 
 function LayoutContent({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
@@ -46,6 +47,7 @@ function LayoutContent({ children }: { children: React.ReactNode }) {
       <main className="flex-1 overflow-y-auto pt-16 pb-16 lg:pt-0 lg:pb-0">
         {children}
       </main>
+      <ChatWidget />
     </div>
   );
 }
