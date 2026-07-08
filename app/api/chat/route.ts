@@ -296,15 +296,17 @@ async function toolMarkPaid(args: { student_id: string; class_id: string; month?
 
   const { data: cls } = await supabase.from('classes').select('name, tuition').eq('id', args.class_id).maybeSingle();
   if (!cls) return { ok: false, error: 'class_id không tồn tại — hãy dùng find_students để lấy đúng id' };
-  const amount = typeof args.amount === 'number' ? args.amount : (cls.tuition ?? 0);
 
   const { data: existing } = await supabase
     .from('payments')
-    .select('id')
+    .select('id, amount')
     .eq('student_id', args.student_id)
     .eq('class_id', args.class_id)
     .eq('month', month)
     .maybeSingle();
+
+  // Số tiền mặc định = số đang nợ của tháng đó (dòng unpaid tùy chỉnh nếu có), không thì học phí lớp
+  const amount = typeof args.amount === 'number' ? args.amount : (existing?.amount ?? cls.tuition ?? 0);
 
   let writeErr: any = null;
   if (existing) {
@@ -556,12 +558,12 @@ BẠN LÀM ĐƯỢC:
 Nếu người dùng yêu cầu thêm/sửa/xóa học sinh/lớp, lịch sự nói tính năng đó đang phát triển.
 
 QUY TRÌNH THU HỌC PHÍ (bắt buộc theo đúng thứ tự, RẤT QUAN TRỌNG):
-1. Gọi find_students để tìm đúng em (kèm lớp, học phí, trạng thái tháng).
+1. Gọi find_students để tìm đúng em. LUÔN truyền tham số month ĐÚNG bằng tháng người dùng muốn thu (vd người dùng nói "tháng 6" → month="2026-06"; không nói tháng → tháng hiện tại). Truyền sai tháng sẽ ra số tiền sai.
 2. Nếu KHÔNG tìm thấy → báo người dùng. Nếu có NHIỀU em trùng tên → liệt kê cho người dùng chọn. Nếu em thuộc NHIỀU lớp thu phí mà chưa rõ lớp nào → hỏi lớp nào.
 3. Nếu em đó ở tháng này ĐÃ đóng rồi → báo cho người dùng biết, hỏi có muốn ghi đè không.
-4. TÓM TẮT rõ trước khi ghi: "Xác nhận: [Tên] — [Lớp] — T[tháng]/[năm] — [số tiền]đ[ — ghi chú nếu có] → đánh dấu ĐÃ ĐÓNG. OK chứ?" rồi DỪNG LẠI chờ người dùng đồng ý.
-5. CHỈ gọi mark_paid SAU KHI người dùng xác nhận (ok/đúng/ừ/đồng ý...). TUYỆT ĐỐI không gọi mark_paid ở lượt chưa có xác nhận.
-6. Mặc định: tháng = tháng hiện tại; số tiền = học phí lớp (trừ khi người dùng nói số khác, ví dụ "đóng 300k").
+4. SỐ TIỀN: dùng ĐÚNG "so_tien_hien_tai" mà find_students trả về cho từng em (đây là số em đang NỢ tháng đó, có thể mỗi em một khác). KHÔNG tự lấy học phí lớp cho tất cả. Chỉ đổi khi người dùng nói số khác (vd "đóng 300k").
+5. TÓM TẮT rõ trước khi ghi: "Xác nhận: [Tên] — [Lớp] — T[tháng]/[năm] — [số tiền]đ[ — ghi chú nếu có] → đánh dấu ĐÃ ĐÓNG. OK chứ?" rồi DỪNG LẠI chờ người dùng đồng ý.
+6. CHỈ gọi mark_paid SAU KHI người dùng xác nhận (ok/đúng/ừ/đồng ý...). TUYỆT ĐỐI không gọi mark_paid ở lượt chưa có xác nhận. Truyền đúng month và amount đã chốt cho từng em.
 7. Ghi xong báo lại ngắn gọn kết quả thật từ công cụ.
 
 QUY TRÌNH ĐIỂM DANH (bắt buộc theo đúng thứ tự):
