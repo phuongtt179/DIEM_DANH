@@ -401,6 +401,101 @@ async function toolSaveAttendance(args: { class_id: string; date?: string; absen
   return { ok: true, lop: cls?.name, ngay: date, si_so: students.length, so_vang: absentNames.length, vang: absentNames };
 }
 
+// ---- Công cụ quản lý học sinh (Giai đoạn 4) ----
+
+// Tìm học sinh kèm tất cả lớp (chính/phụ + có thu phí không). Dùng để chuyển lớp / xem thông tin.
+async function toolGetStudentClasses(args: { name: string }) {
+  const kw = (args.name || '').trim().toLowerCase();
+  if (!kw) return { found: 0 };
+  const { data: students } = await supabase.from('students').select('id, name, status');
+  const matched = (students || []).filter((s: any) => s.name.toLowerCase().includes(kw));
+  if (matched.length === 0) return { found: 0 };
+
+  const ids = matched.map((s: any) => s.id);
+  const { data: rels } = await supabase
+    .from('student_classes')
+    .select('student_id, is_primary, charge_fee, classes ( id, name )')
+    .in('student_id', ids);
+
+  return {
+    matches: matched.map((s: any) => ({
+      student_id: s.id,
+      ten: s.name,
+      trang_thai: s.status === 'on_leave' ? 'tạm nghỉ' : 'đang học',
+      lop: (rels || []).filter((r: any) => r.student_id === s.id).map((r: any) => ({
+        class_id: r.classes?.id,
+        ten_lop: r.classes?.name,
+        loai: r.is_primary ? 'chính' : 'phụ',
+        thu_phi: r.charge_fee,
+      })),
+    })),
+  };
+}
+
+// Thêm học sinh mới + lớp chính (luôn thu phí) + lớp phụ (mỗi lớp có/không thu phí). CHỈ gọi sau xác nhận.
+async function toolAddStudent(args: {
+  name: string; primary_class: string;
+  secondary_classes?: { name: string; charge_fee?: boolean }[];
+  phone?: string; parent_phone?: string; note?: string;
+}) {
+  if (!args.name?.trim()) return { ok: false, error: 'thiếu tên học sinh' };
+  if (!args.primary_class?.trim()) return { ok: false, error: 'thiếu lớp chính' };
+
+  const pr = await resolveClass(args.primary_class);
+  if (!pr.one) return { ok: false, need_clarification: true, field: 'lớp chính', matches: (pr.matches || []).map((c: any) => c.name) };
+
+  const secResolved: { id: string; name: string; charge_fee: boolean }[] = [];
+  for (const sc of (args.secondary_classes || [])) {
+    const r = await resolveClass(sc.name);
+    if (!r.one) return { ok: false, need_clarification: true, field: `lớp phụ "${sc.name}"`, matches: (r.matches || []).map((c: any) => c.name) };
+    secResolved.push({ id: r.one.id, name: r.one.name, charge_fee: !!sc.charge_fee });
+  }
+
+  const { data: newStudent, error: insErr } = await supabase.from('students').insert([{
+    name: args.name.trim(), phone: args.phone || '', parent_phone: args.parent_phone || '', note: args.note || '',
+  }]).select().single();
+  if (insErr || !newStudent) return { ok: false, error: insErr?.message || 'không tạo được học sinh' };
+
+  const now = new Date().toISOString();
+  const rels = [
+    { student_id: newStudent.id, class_id: pr.one.id, is_primary: true, charge_fee: true, enrolled_at: now },
+    ...secResolved.map(s => ({ student_id: newStudent.id, class_id: s.id, is_primary: false, charge_fee: s.charge_fee, enrolled_at: now })),
+  ];
+  const { error: relErr } = await supabase.from('student_classes').insert(rels);
+  if (relErr) return { ok: false, error: relErr.message };
+
+  return { ok: true, ten: newStudent.name, lop_chinh: pr.one.name, lop_phu: secResolved.map(s => ({ ten: s.name, thu_phi: s.charge_fee })) };
+}
+
+// Chuyển lớp chính + dời điểm danh và học phí sang lớp mới. CHỈ gọi sau xác nhận.
+async function toolTransferStudent(args: { student_id: string; to_class: string }) {
+  if (!args.student_id) return { ok: false, error: 'thiếu student_id — hãy dùng get_student_classes trước' };
+  const to = await resolveClass(args.to_class);
+  if (!to.one) return { ok: false, need_clarification: true, matches: (to.matches || []).map((c: any) => c.name) };
+
+  const { data: prim } = await supabase.from('student_classes')
+    .select('id, class_id').eq('student_id', args.student_id).eq('is_primary', true).maybeSingle();
+  if (!prim) return { ok: false, error: 'học sinh chưa có lớp chính' };
+  const oldClassId = prim.class_id;
+  if (oldClassId === to.one.id) return { ok: false, error: 'học sinh đã ở lớp này rồi' };
+
+  // Tránh trùng: nếu em đã có quan hệ với lớp đích (đang là lớp phụ) thì báo để xử lý trong app
+  const { data: dup } = await supabase.from('student_classes')
+    .select('id').eq('student_id', args.student_id).eq('class_id', to.one.id).maybeSingle();
+  if (dup) return { ok: false, error: 'em đã học lớp đích này (dạng lớp phụ) — hãy chỉnh trong app để tránh trùng' };
+
+  const { error: e1 } = await supabase.from('student_classes').update({ class_id: to.one.id }).eq('id', prim.id);
+  if (e1) return { ok: false, error: e1.message };
+
+  const { error: e2 } = await supabase.from('attendance').update({ class_id: to.one.id }).eq('student_id', args.student_id).eq('class_id', oldClassId);
+  const { error: e3 } = await supabase.from('payments').update({ class_id: to.one.id }).eq('student_id', args.student_id).eq('class_id', oldClassId);
+  if (e2 || e3) return { ok: false, error: (e2 || e3)?.message, luu_y: 'lớp đã đổi nhưng dời điểm danh/học phí có thể chưa trọn — kiểm tra lại' };
+
+  const { data: st } = await supabase.from('students').select('name').eq('id', args.student_id).maybeSingle();
+  const { data: oldCls } = await supabase.from('classes').select('name').eq('id', oldClassId).maybeSingle();
+  return { ok: true, ten: st?.name, tu_lop: oldCls?.name, sang_lop: to.one.name, da_chuyen: 'điểm danh + học phí' };
+}
+
 // Bảng điều phối tên công cụ → hàm
 async function runTool(name: string, args: any): Promise<unknown> {
   switch (name) {
@@ -414,6 +509,9 @@ async function runTool(name: string, args: any): Promise<unknown> {
     case 'mark_paid': return toolMarkPaid(args);
     case 'get_class_roster': return toolGetRoster(args);
     case 'save_attendance': return toolSaveAttendance(args);
+    case 'get_student_classes': return toolGetStudentClasses(args);
+    case 'add_student': return toolAddStudent(args);
+    case 'transfer_student': return toolTransferStudent(args);
     default: return { error: `unknown_tool: ${name}` };
   }
 }
@@ -539,6 +637,54 @@ const TOOLS = [{
         required: ['class_id', 'absent_student_ids'],
       },
     },
+    {
+      name: 'get_student_classes',
+      description: 'Tìm học sinh theo tên, trả về các lớp em đang học (chính/phụ, có thu phí không) kèm student_id và class_id. DÙNG TRƯỚC khi chuyển lớp.',
+      parameters: {
+        type: 'object',
+        properties: { name: { type: 'string', description: 'Tên (một phần) học sinh' } },
+        required: ['name'],
+      },
+    },
+    {
+      name: 'add_student',
+      description: 'Thêm học sinh mới với lớp chính (luôn thu phí) và tùy chọn các lớp phụ (mỗi lớp phụ có/không thu phí). CHỈ gọi SAU KHI người dùng đã xác nhận.',
+      parameters: {
+        type: 'object',
+        properties: {
+          name: { type: 'string', description: 'Họ tên học sinh' },
+          primary_class: { type: 'string', description: 'Tên lớp chính' },
+          secondary_classes: {
+            type: 'array',
+            description: 'Các lớp phụ (tùy chọn)',
+            items: {
+              type: 'object',
+              properties: {
+                name: { type: 'string', description: 'Tên lớp phụ' },
+                charge_fee: { type: 'boolean', description: 'Có thu học phí lớp này không' },
+              },
+              required: ['name', 'charge_fee'],
+            },
+          },
+          phone: { type: 'string', description: 'SĐT học sinh (tùy chọn)' },
+          parent_phone: { type: 'string', description: 'SĐT phụ huynh (tùy chọn)' },
+          note: { type: 'string', description: 'Ghi chú (tùy chọn)' },
+        },
+        required: ['name', 'primary_class'],
+      },
+    },
+    {
+      name: 'transfer_student',
+      description: 'Chuyển lớp CHÍNH của học sinh sang lớp mới, dời toàn bộ điểm danh và học phí theo. CHỈ gọi SAU KHI người dùng đã xác nhận. student_id lấy từ get_student_classes.',
+      parameters: {
+        type: 'object',
+        properties: {
+          student_id: { type: 'string', description: 'ID học sinh (từ get_student_classes)' },
+          to_class: { type: 'string', description: 'Tên lớp đích' },
+        },
+        required: ['student_id', 'to_class'],
+      },
+    },
   ],
 }];
 
@@ -555,7 +701,9 @@ BẠN LÀM ĐƯỢC:
 - Tra cứu (đọc): nợ, đã nộp, doanh thu, sĩ số, thống kê vắng...
 - THU HỌC PHÍ (ghi): đánh dấu học sinh đã đóng.
 - ĐIỂM DANH (ghi): đánh dấu buổi học ai vắng.
-Nếu người dùng yêu cầu thêm/sửa/xóa học sinh/lớp, lịch sự nói tính năng đó đang phát triển.
+- THÊM HỌC SINH (ghi): tạo học sinh mới + lớp chính/phụ.
+- CHUYỂN LỚP (ghi): đổi lớp chính, dời điểm danh + học phí theo.
+Sửa thông tin/xóa học sinh, tạo/sửa/xóa lớp thì CHƯA làm được — lịch sự nói đang phát triển.
 
 QUY TRÌNH THU HỌC PHÍ (bắt buộc theo đúng thứ tự, RẤT QUAN TRỌNG):
 1. Gọi find_students để tìm đúng em. LUÔN truyền tham số month ĐÚNG bằng tháng người dùng muốn thu (vd người dùng nói "tháng 6" → month="2026-06"; không nói tháng → tháng hiện tại). Truyền sai tháng sẽ ra số tiền sai.
@@ -573,6 +721,18 @@ QUY TRÌNH ĐIỂM DANH (bắt buộc theo đúng thứ tự):
 4. TÓM TẮT trước khi ghi: "Điểm danh [Lớp] ngày [d/m]: VẮNG [tên các em] ([n] em); còn lại [si_so - n] em có mặt. OK chứ?" rồi DỪNG chờ đồng ý.
 5. CHỈ gọi save_attendance SAU KHI người dùng xác nhận. Truyền absent_student_ids là student_id các em vắng (rỗng nếu cả lớp đi đủ).
 6. Ghi xong báo lại ngắn gọn: lớp, ngày, số em vắng (kèm tên), số em có mặt.
+
+QUY TRÌNH THÊM HỌC SINH:
+1. Cần TÊN (bắt buộc) và LỚP CHÍNH (bắt buộc). Lớp chính LUÔN thu phí.
+2. Nếu người dùng nói có LỚP PHỤ: với MỖI lớp phụ phải biết CÓ thu phí hay KHÔNG. Nếu người dùng chưa nói rõ → HỎI lại (ảnh hưởng học phí).
+3. SĐT, SĐT phụ huynh, ghi chú là tùy chọn.
+4. TÓM TẮT: "Thêm [tên] — lớp chính [X] — lớp phụ [Y (thu phí), Z (không thu phí)]... OK?" rồi chờ xác nhận.
+5. CHỈ gọi add_student SAU KHI người dùng xác nhận.
+
+QUY TRÌNH CHUYỂN LỚP:
+1. Gọi get_student_classes để tìm đúng em + lớp chính hiện tại. Trùng tên → hỏi người dùng chọn.
+2. Xác định lớp đích. TÓM TẮT: "Chuyển [tên] từ lớp [cũ] sang lớp [mới]. Toàn bộ điểm danh + học phí sẽ chuyển theo. OK?" rồi chờ xác nhận.
+3. CHỈ gọi transfer_student (student_id + to_class) SAU KHI người dùng xác nhận.
 
 QUY TẮC TRÌNH BÀY (rất quan trọng):
 - Trả lời bằng tiếng Việt, ngắn gọn, dạng DANH SÁCH mỗi em một dòng.
@@ -652,7 +812,7 @@ export async function POST(req: Request) {
       for (const fc of fnCalls) {
         let result: unknown;
         // Chặn ghi khi chưa có xác nhận rõ ràng ở tin nhắn cuối
-        if ((fc.name === 'mark_paid' || fc.name === 'save_attendance') && !writeConfirmed) {
+        if (['mark_paid', 'save_attendance', 'add_student', 'transfer_student'].includes(fc.name) && !writeConfirmed) {
           result = {
             error: 'chua_xac_nhan',
             message: 'CHƯA được phép ghi. Hãy TÓM TẮT (tên, lớp, tháng, số tiền) rồi HỎI người dùng xác nhận. Chỉ ghi sau khi người dùng đồng ý.',
