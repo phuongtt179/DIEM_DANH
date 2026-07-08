@@ -17,6 +17,17 @@ function LayoutContent({ children }: { children: React.ReactNode }) {
     }
   }, [user, loading, pathname, router]);
 
+  // Khi MỞ app trên điện thoại: vào thẳng khung chat (chỉ 1 lần mỗi phiên mở app).
+  // Sau đó vẫn vào Dashboard/các trang khác qua menu bình thường.
+  useEffect(() => {
+    if (loading || !user) return;
+    if (sessionStorage.getItem('app_launched')) return;
+    sessionStorage.setItem('app_launched', '1');
+    if (window.innerWidth < 1024 && pathname === '/') {
+      router.replace('/chat');
+    }
+  }, [loading, user, pathname, router]);
+
   // Show loading while checking auth
   if (loading) {
     return (
