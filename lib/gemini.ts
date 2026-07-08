@@ -6,7 +6,8 @@ export function getGeminiKeys(): string[] {
   const keys: string[] = [];
   const push = (v?: string) => { if (v && v.trim()) keys.push(v.trim()); };
   push(process.env.GEMINI_API_KEY);
-  for (let i = 2; i <= 6; i++) push(process.env[`GEMINI_API_KEY_${i}`]);
+  // Đọc cả GEMINI_API_KEY_1 .. _6 (linh hoạt cách đặt tên)
+  for (let i = 1; i <= 6; i++) push(process.env[`GEMINI_API_KEY_${i}`]);
   return keys;
 }
 
