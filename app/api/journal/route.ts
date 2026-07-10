@@ -21,6 +21,52 @@ function keywords(q: string): string[] {
   )).slice(0, 8);
 }
 
+// Nhận diện khoảng thời gian trong câu hỏi → lọc nhật ký theo NGÀY GHI (created_at)
+function detectDateRange(q: string): { start: string; end: string; label: string } | null {
+  const s = q.toLowerCase();
+  const now = new Date();
+  const day = 86400000;
+  const sod = (d: Date) => { const x = new Date(d); x.setHours(0, 0, 0, 0); return x; };
+  const eod = (d: Date) => { const x = new Date(d); x.setHours(23, 59, 59, 999); return x; };
+  const iso = (d: Date) => d.toISOString();
+
+  if (/tu[àa]n\s*(này|nay|tr[ưuữ]ớc)/.test(s)) {
+    const dow = (now.getDay() + 6) % 7; // Thứ 2 = 0
+    const monday = sod(new Date(now.getTime() - dow * day));
+    if (/tr[ưuữ]ớc/.test(s)) {
+      const prevMon = new Date(monday.getTime() - 7 * day);
+      const prevSun = eod(new Date(monday.getTime() - day));
+      return { start: iso(prevMon), end: iso(prevSun), label: 'tuần trước' };
+    }
+    return { start: iso(monday), end: iso(eod(now)), label: 'tuần này' };
+  }
+  if (/th[áaá]ng\s*(này|nay|tr[ưuữ]ớc)/.test(s)) {
+    if (/tr[ưuữ]ớc/.test(s)) {
+      const first = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      const last = eod(new Date(now.getFullYear(), now.getMonth(), 0));
+      return { start: iso(sod(first)), end: iso(last), label: 'tháng trước' };
+    }
+    const first = new Date(now.getFullYear(), now.getMonth(), 1);
+    return { start: iso(sod(first)), end: iso(eod(now)), label: 'tháng này' };
+  }
+  if (/hôm\s*qua|bữa\s*qua/.test(s)) {
+    const y = new Date(now.getTime() - day);
+    return { start: iso(sod(y)), end: iso(eod(y)), label: 'hôm qua' };
+  }
+  if (/hôm\s*nay|bữa\s*nay|ngày\s*nay/.test(s)) {
+    return { start: iso(sod(now)), end: iso(eod(now)), label: 'hôm nay' };
+  }
+  const mDays = s.match(/(\d+)\s*ng[àaá]y\s*(qua|g[ầaấ]n|nay|tr[ưuữ]ớc)/);
+  if (mDays) {
+    const n = Math.max(1, parseInt(mDays[1]));
+    return { start: iso(sod(new Date(now.getTime() - (n - 1) * day))), end: iso(eod(now)), label: `${n} ngày qua` };
+  }
+  if (/g[ầaấ]n\s*đây/.test(s)) {
+    return { start: iso(sod(new Date(now.getTime() - 6 * day))), end: iso(eod(now)), label: '7 ngày gần đây' };
+  }
+  return null;
+}
+
 export async function POST(req: Request) {
   let body: any;
   try { body = await req.json(); } catch { return Response.json({ error: 'bad_request' }, { status: 400 }); }
@@ -30,26 +76,42 @@ export async function POST(req: Request) {
   const keys = getGeminiKeys();
   if (!keys.length) return Response.json({ error: 'no_api_key' }, { status: 500 });
 
-  // Lọc các mục nhật ký liên quan theo từ khóa; không có từ khóa rõ → lấy gần đây nhất
-  const kws = keywords(question);
+  // Ưu tiên: nếu câu hỏi có khoảng thời gian → lọc theo NGÀY GHI
+  const range = detectDateRange(question);
   let entries: any[] = [];
-  if (kws.length) {
-    const orExpr = kws.map(w => `content.ilike.%${w}%`).join(',');
+  if (range) {
     const { data } = await supabase
       .from('journal_entries')
       .select('content, created_at')
-      .or(orExpr)
+      .gte('created_at', range.start)
+      .lte('created_at', range.end)
       .order('created_at', { ascending: false })
-      .limit(60);
+      .limit(100);
     entries = data || [];
-  }
-  if (entries.length === 0) {
-    const { data } = await supabase
-      .from('journal_entries')
-      .select('content, created_at')
-      .order('created_at', { ascending: false })
-      .limit(40);
-    entries = data || [];
+    if (entries.length === 0) {
+      return Response.json({ answer: `Không có mục nhật ký nào trong ${range.label}.` });
+    }
+  } else {
+    // Không có mốc thời gian → lọc theo từ khóa; không khớp thì lấy gần đây nhất
+    const kws = keywords(question);
+    if (kws.length) {
+      const orExpr = kws.map(w => `content.ilike.%${w}%`).join(',');
+      const { data } = await supabase
+        .from('journal_entries')
+        .select('content, created_at')
+        .or(orExpr)
+        .order('created_at', { ascending: false })
+        .limit(60);
+      entries = data || [];
+    }
+    if (entries.length === 0) {
+      const { data } = await supabase
+        .from('journal_entries')
+        .select('content, created_at')
+        .order('created_at', { ascending: false })
+        .limit(40);
+      entries = data || [];
+    }
   }
 
   if (entries.length === 0) {
@@ -62,7 +124,9 @@ export async function POST(req: Request) {
   };
   const context = entries.map((e: any) => `[${fmtDate(e.created_at)}] ${e.content}`).join('\n');
 
-  const systemPrompt = `Bạn giúp chủ nhân tra cứu NHẬT KÝ CÁ NHÂN của họ. Chỉ được dựa vào các mục nhật ký dưới đây, KHÔNG bịa thêm.
+  const todayStr = (() => { const d = new Date(); const p = (n: number) => String(n).padStart(2, '0'); return `${p(d.getDate())}/${p(d.getMonth() + 1)}/${d.getFullYear()}`; })();
+  const systemPrompt = `Hôm nay là ${todayStr}.
+Bạn giúp chủ nhân tra cứu NHẬT KÝ CÁ NHÂN của họ. Chỉ được dựa vào các mục nhật ký dưới đây, KHÔNG bịa thêm.
 - Trả lời ngắn gọn, đúng trọng tâm câu hỏi, bằng tiếng Việt.
 - Khi nhắc tới nội dung nào, ghi kèm NGÀY của mục đó (dd/mm/yyyy).
 - Nếu các mục không chứa thông tin liên quan, nói thẳng "Không tìm thấy mục nhật ký nào về việc này."
