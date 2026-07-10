@@ -17,7 +17,8 @@ import {
   UserCog,
   User,
   GraduationCap,
-  Bot
+  Bot,
+  NotebookPen
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 
@@ -30,6 +31,7 @@ const allNavItems = [
   { href: '/statistics', icon: BarChart3, label: 'Thống kê', permission: 'view_statistics' },
   { href: '/assistants', icon: GraduationCap, label: 'Trợ giảng', permission: 'manage_assistants' },
   { href: '/chat', icon: Bot, label: 'Trợ lý AI', permission: 'use_ai_chat' },
+  { href: '/journal', icon: NotebookPen, label: 'Nhật ký', permission: 'use_ai_chat' },
   { href: '/users', icon: UserCog, label: 'Người dùng', permission: 'manage_users' },
 ];
 
