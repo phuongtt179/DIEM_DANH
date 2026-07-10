@@ -610,6 +610,123 @@ async function toolTransferStudent(args: { student_id: string; to_class: string 
   return { ok: true, ten: st?.name, tu_lop: oldCls?.name, sang_lop: to.one.name, da_chuyen: 'điểm danh + học phí' };
 }
 
+// Đổi tên (thông tin) học sinh. CHỈ gọi sau xác nhận.
+async function toolRenameStudent(args: { student_id: string; new_name: string }) {
+  if (!args.student_id || !args.new_name?.trim()) return { ok: false, error: 'thiếu student_id hoặc tên mới — dùng get_student_classes để lấy id' };
+  const { error } = await supabase.from('students').update({ name: args.new_name.trim() }).eq('id', args.student_id);
+  if (error) return { ok: false, error: error.message };
+  return { ok: true, ten_moi: args.new_name.trim() };
+}
+
+// ---- Công cụ TRỢ GIẢNG (Giai đoạn 5) ----
+
+async function resolveAssistant(name: string) {
+  const { data } = await supabase.from('assistants').select('id, name');
+  const norm = (s: string) => s.trim().toLowerCase().replace(/\s+/g, ' ');
+  const kw = norm(name);
+  const exact = (data || []).filter((a: any) => norm(a.name) === kw);
+  if (exact.length === 1) return { one: exact[0] as any };
+  const partial = (data || []).filter((a: any) => norm(a.name).includes(kw));
+  if (partial.length === 1) return { one: partial[0] as any };
+  return { matches: partial as any[] };
+}
+
+// Tìm trợ giảng + các lớp phụ trách (kèm id). Dùng trước khi điểm danh trợ giảng.
+async function toolFindAssistant(args: { name: string }) {
+  const r = await resolveAssistant(args.name);
+  if (!r.one) return { need_clarification: true, matches: (r.matches || []).map((a: any) => a.name) };
+  const { data: acs } = await supabase
+    .from('assistant_classes')
+    .select('class_id, classes ( name )')
+    .eq('assistant_id', r.one.id);
+  return {
+    assistant_id: r.one.id,
+    ten: r.one.name,
+    lop_phu_trach: (acs || []).map((x: any) => ({ class_id: x.class_id, ten_lop: x.classes?.name })),
+  };
+}
+
+// Tạo trợ giảng mới + (tùy chọn) phân công lớp. CHỈ gọi sau xác nhận.
+async function toolAddAssistant(args: { name: string; phone?: string; note?: string; class_names?: string[] }) {
+  if (!args.name?.trim()) return { ok: false, error: 'thiếu tên trợ giảng' };
+  const classIds: { id: string; name: string }[] = [];
+  for (const cn of (args.class_names || [])) {
+    const r = await resolveClass(cn);
+    if (!r.one) return { ok: false, need_clarification: true, field: `lớp "${cn}"`, matches: (r.matches || []).map((c: any) => c.name) };
+    classIds.push({ id: r.one.id, name: r.one.name });
+  }
+  const { data: na, error } = await supabase.from('assistants')
+    .insert({ name: args.name.trim(), phone: args.phone || null, note: args.note || null })
+    .select().single();
+  if (error || !na) return { ok: false, error: error?.message || 'không tạo được trợ giảng' };
+  if (classIds.length) {
+    const { error: e2 } = await supabase.from('assistant_classes')
+      .insert(classIds.map(c => ({ assistant_id: na.id, class_id: c.id })));
+    if (e2) return { ok: false, error: e2.message };
+  }
+  return { ok: true, ten: na.name, lop_phu_trach: classIds.map(c => c.name) };
+}
+
+// Điểm danh trợ giảng: đánh dấu trợ giảng đã dạy các lớp trong 1 ngày (mỗi lớp = 1 buổi). CHỈ gọi sau xác nhận.
+async function toolMarkAssistantTaught(args: { assistant_id: string; class_ids: string[]; date?: string }) {
+  const date = args.date || todayStr();
+  if (!args.assistant_id || !Array.isArray(args.class_ids) || args.class_ids.length === 0)
+    return { ok: false, error: 'thiếu assistant_id hoặc class_ids — dùng find_assistant trước' };
+
+  let werr: any = null;
+  const doneNames: string[] = [];
+  for (const cid of args.class_ids) {
+    const { data: ex } = await supabase.from('assistant_sessions').select('id')
+      .eq('assistant_id', args.assistant_id).eq('class_id', cid).eq('date', date).maybeSingle();
+    if (ex) continue; // đã điểm danh
+    const { error } = await supabase.from('assistant_sessions')
+      .insert({ assistant_id: args.assistant_id, class_id: cid, date, sessions_count: 1, note: '' });
+    if (error) werr = error;
+    else {
+      const { data: c } = await supabase.from('classes').select('name').eq('id', cid).maybeSingle();
+      doneNames.push(c?.name || cid);
+    }
+  }
+  if (werr) return { ok: false, error: werr.message };
+  const { data: a } = await supabase.from('assistants').select('name').eq('id', args.assistant_id).maybeSingle();
+  return { ok: true, ten: a?.name, ngay: date, so_buoi: doneNames.length, cac_lop: doneNames };
+}
+
+// Thống kê số buổi dạy của trợ giảng theo tháng (tổng theo từng trợ giảng + lớp).
+async function toolGetAssistantSessions(args: { month: string; assistant_name?: string }) {
+  const month = args.month || currentMonth();
+  const [y, mo] = month.split('-');
+  const start = `${month}-01`;
+  const lastDay = new Date(parseInt(y), parseInt(mo), 0).getDate();
+  const end = `${month}-${String(lastDay).padStart(2, '0')}`;
+
+  const { data } = await supabase
+    .from('assistant_sessions')
+    .select('assistant_id, sessions_count, assistants ( name ), classes ( name )')
+    .gte('date', start).lte('date', end);
+
+  let rows = (data || []) as any[];
+  if (args.assistant_name) {
+    const r = await resolveAssistant(args.assistant_name);
+    if (!r.one) return { need_clarification: true, matches: (r.matches || []).map((a: any) => a.name) };
+    const aid = r.one.id;
+    rows = rows.filter((x: any) => x.assistant_id === aid);
+  }
+
+  const g: Record<string, { ten: string; lop: string; so: number }> = {};
+  rows.forEach((x: any) => {
+    const key = `${x.assistant_id}-${x.classes?.name}`;
+    if (!g[key]) g[key] = { ten: x.assistants?.name || '?', lop: x.classes?.name || '?', so: 0 };
+    g[key].so += x.sessions_count;
+  });
+  const list = Object.values(g);
+  return {
+    thang: month,
+    danh_sach: list.map(v => ({ tro_giang: v.ten, lop: v.lop, so_buoi: v.so })),
+    tong_buoi: list.reduce((s, v) => s + v.so, 0),
+  };
+}
+
 // Bảng điều phối tên công cụ → hàm
 async function runTool(name: string, args: any): Promise<unknown> {
   switch (name) {
@@ -629,6 +746,11 @@ async function runTool(name: string, args: any): Promise<unknown> {
     case 'get_student_classes': return toolGetStudentClasses(args);
     case 'add_student': return toolAddStudent(args);
     case 'transfer_student': return toolTransferStudent(args);
+    case 'rename_student': return toolRenameStudent(args);
+    case 'find_assistant': return toolFindAssistant(args);
+    case 'add_assistant': return toolAddAssistant(args);
+    case 'mark_assistant_taught': return toolMarkAssistantTaught(args);
+    case 'get_assistant_sessions': return toolGetAssistantSessions(args);
     default: return { error: `unknown_tool: ${name}` };
   }
 }
@@ -833,6 +955,66 @@ const TOOLS = [{
         required: ['student_id', 'to_class'],
       },
     },
+    {
+      name: 'rename_student',
+      description: 'Sửa TÊN học sinh. CHỈ gọi SAU KHI người dùng đã xác nhận. student_id lấy từ get_student_classes.',
+      parameters: {
+        type: 'object',
+        properties: {
+          student_id: { type: 'string', description: 'ID học sinh (từ get_student_classes)' },
+          new_name: { type: 'string', description: 'Tên mới' },
+        },
+        required: ['student_id', 'new_name'],
+      },
+    },
+    {
+      name: 'find_assistant',
+      description: 'Tìm trợ giảng theo tên, trả về assistant_id và các lớp phụ trách (kèm class_id). DÙNG TRƯỚC khi điểm danh trợ giảng.',
+      parameters: {
+        type: 'object',
+        properties: { name: { type: 'string', description: 'Tên (một phần) trợ giảng' } },
+        required: ['name'],
+      },
+    },
+    {
+      name: 'add_assistant',
+      description: 'Tạo trợ giảng mới, tùy chọn phân công các lớp phụ trách. CHỈ gọi SAU KHI người dùng đã xác nhận.',
+      parameters: {
+        type: 'object',
+        properties: {
+          name: { type: 'string', description: 'Họ tên trợ giảng' },
+          phone: { type: 'string', description: 'SĐT (tùy chọn)' },
+          note: { type: 'string', description: 'Ghi chú (tùy chọn)' },
+          class_names: { type: 'array', items: { type: 'string' }, description: 'Tên các lớp phụ trách (tùy chọn)' },
+        },
+        required: ['name'],
+      },
+    },
+    {
+      name: 'mark_assistant_taught',
+      description: 'Điểm danh trợ giảng: đánh dấu trợ giảng đã dạy các lớp trong 1 ngày (mỗi lớp = 1 buổi). CHỈ gọi SAU KHI người dùng đã xác nhận. assistant_id và class_id lấy từ find_assistant.',
+      parameters: {
+        type: 'object',
+        properties: {
+          assistant_id: { type: 'string', description: 'ID trợ giảng (từ find_assistant)' },
+          class_ids: { type: 'array', items: { type: 'string' }, description: 'Danh sách class_id các lớp đã dạy hôm đó' },
+          date: { type: 'string', description: 'Ngày, dạng YYYY-MM-DD (mặc định hôm nay)' },
+        },
+        required: ['assistant_id', 'class_ids'],
+      },
+    },
+    {
+      name: 'get_assistant_sessions',
+      description: 'Thống kê số buổi dạy của trợ giảng trong 1 tháng (tổng theo từng trợ giảng và lớp). assistant_name để lọc 1 trợ giảng (tùy chọn).',
+      parameters: {
+        type: 'object',
+        properties: {
+          month: { type: 'string', description: 'Tháng, dạng YYYY-MM' },
+          assistant_name: { type: 'string', description: 'Tên trợ giảng để lọc (tùy chọn)' },
+        },
+        required: ['month'],
+      },
+    },
   ],
 }];
 
@@ -851,7 +1033,9 @@ BẠN LÀM ĐƯỢC:
 - ĐIỂM DANH (ghi): đánh dấu buổi học ai vắng.
 - THÊM HỌC SINH (ghi): tạo học sinh mới + lớp chính/phụ.
 - CHUYỂN LỚP (ghi): đổi lớp chính, dời điểm danh + học phí theo.
-Sửa thông tin/xóa học sinh, tạo/sửa/xóa lớp thì CHƯA làm được — lịch sự nói đang phát triển.
+- SỬA TÊN HỌC SINH (ghi): đổi tên một học sinh.
+- TRỢ GIẢNG: tạo trợ giảng, điểm danh trợ giảng (dạy lớp nào ngày nào), thống kê số buổi dạy theo tháng.
+Xóa học sinh và tạo/sửa/xóa LỚP thì CHƯA làm được — lịch sự nói đang phát triển.
 
 QUY TRÌNH THU HỌC PHÍ (bắt buộc theo đúng thứ tự, RẤT QUAN TRỌNG):
 1. Gọi find_students để tìm đúng em. LUÔN truyền tham số month ĐÚNG bằng tháng người dùng muốn thu (vd người dùng nói "tháng 6" → month="2026-06"; không nói tháng → tháng hiện tại). Truyền sai tháng sẽ ra số tiền sai.
@@ -882,6 +1066,15 @@ QUY TRÌNH CHUYỂN LỚP:
 1. Gọi get_student_classes để tìm đúng em + lớp chính hiện tại. Trùng tên → hỏi người dùng chọn.
 2. Xác định lớp đích. TÓM TẮT: "Chuyển [tên] từ lớp [cũ] sang lớp [mới]. Toàn bộ điểm danh + học phí sẽ chuyển theo. OK?" rồi chờ xác nhận.
 3. CHỈ gọi transfer_student (student_id + to_class) SAU KHI người dùng xác nhận.
+
+QUY TRÌNH SỬA TÊN HỌC SINH:
+1. Gọi get_student_classes để tìm đúng em (trùng tên → hỏi chọn).
+2. TÓM TẮT: "Đổi tên [tên cũ] → [tên mới]. OK?" rồi chờ xác nhận. CHỈ gọi rename_student sau khi đồng ý.
+
+QUY TRÌNH TRỢ GIẢNG:
+- TẠO TRỢ GIẢNG: cần tên; tùy chọn SĐT, ghi chú, lớp phụ trách. TÓM TẮT rồi chờ xác nhận → add_assistant.
+- ĐIỂM DANH TRỢ GIẢNG: gọi find_assistant để lấy assistant_id + lớp phụ trách. Xác định các lớp trợ giảng đã dạy (theo lời người dùng), map sang class_id. Mặc định ngày = hôm nay. TÓM TẮT "Điểm danh [tên] ngày [d/m]: dạy [các lớp]. OK?" rồi chờ xác nhận → mark_assistant_taught.
+- THỐNG KÊ BUỔI DẠY: dùng get_assistant_sessions (tháng, tùy chọn 1 trợ giảng) — chỉ đọc, trả lời dạng danh sách "Trợ giảng - Lớp - Số buổi".
 
 QUY TẮC TRÌNH BÀY (rất quan trọng):
 - Trả lời bằng tiếng Việt, ngắn gọn, dạng DANH SÁCH mỗi em một dòng.
@@ -961,7 +1154,7 @@ export async function POST(req: Request) {
       for (const fc of fnCalls) {
         let result: unknown;
         // Chặn ghi khi chưa có xác nhận rõ ràng ở tin nhắn cuối
-        if (['mark_paid', 'save_attendance', 'add_student', 'transfer_student'].includes(fc.name) && !writeConfirmed) {
+        if (['mark_paid', 'save_attendance', 'add_student', 'transfer_student', 'rename_student', 'add_assistant', 'mark_assistant_taught'].includes(fc.name) && !writeConfirmed) {
           result = {
             error: 'chua_xac_nhan',
             message: 'CHƯA được phép ghi. Hãy TÓM TẮT (tên, lớp, tháng, số tiền) rồi HỎI người dùng xác nhận. Chỉ ghi sau khi người dùng đồng ý.',
