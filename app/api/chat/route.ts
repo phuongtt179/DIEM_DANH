@@ -307,30 +307,40 @@ async function toolRevenueByClass(args: { month: string }) {
   return { thang: month, danh_sach: list, tong: list.reduce((s: number, x: any) => s + x.so_tien, 0) };
 }
 
-async function toolAttendanceSummary(args: { class_name: string; month: string }) {
+async function toolAttendanceSummary(args: { class_name: string; month: string; student_name?: string }) {
   const r = await resolveClass(args.class_name);
   if (!r.one) return { need_clarification: true, matches: (r.matches || []).map((c: any) => c.name) };
   const month = args.month || currentMonth();
 
   const { data } = await supabase
     .from('attendance')
-    .select('student_id, status, students ( name )')
+    .select('student_id, status, date, students ( name )')
     .eq('class_id', r.one.id)
     .gte('date', `${month}-01`)
-    .lte('date', `${month}-31`)
-    .eq('status', 'absent');
+    .lte('date', `${month}-31`);
 
-  const counts: Record<string, { name: string; absent: number }> = {};
+  const dates = new Set<string>();
+  const per: Record<string, { name: string; hoc: number; vang: number }> = {};
   (data || []).forEach((a: any) => {
+    dates.add(a.date);
     const key = a.student_id;
-    if (!counts[key]) counts[key] = { name: a.students?.name || '?', absent: 0 };
-    counts[key].absent += 1;
+    if (!per[key]) per[key] = { name: a.students?.name || '?', hoc: 0, vang: 0 };
+    if (a.status === 'absent') per[key].vang += 1;
+    else per[key].hoc += 1; // present/late/excused = có đi học
   });
-  const list = Object.values(counts).sort((a, b) => b.absent - a.absent);
+
+  let list = Object.values(per);
+  if (args.student_name) {
+    const kw = args.student_name.trim().toLowerCase();
+    list = list.filter(x => x.name.toLowerCase().includes(kw));
+  }
+  list.sort((a, b) => b.vang - a.vang);
+
   return {
     lop: r.one.name,
     thang: month,
-    danh_sach_vang: list.map(x => ({ ten: x.name, so_buoi_vang: x.absent })),
+    tong_buoi_lop_da_hoc: dates.size,
+    danh_sach: list.map(x => ({ ten: x.name, so_buoi_di_hoc: x.hoc, so_buoi_vang: x.vang })),
   };
 }
 
@@ -839,12 +849,13 @@ const TOOLS = [{
     },
     {
       name: 'get_attendance_summary',
-      description: 'Thống kê số buổi VẮNG của học sinh trong 1 lớp theo tháng.',
+      description: 'Thống kê điểm danh 1 lớp theo tháng: số buổi ĐI HỌC và số buổi VẮNG của từng học sinh, kèm tổng số buổi lớp đã học. student_name để xem 1 em cụ thể (tùy chọn).',
       parameters: {
         type: 'object',
         properties: {
           class_name: { type: 'string', description: 'Tên lớp' },
           month: { type: 'string', description: 'Tháng, dạng YYYY-MM' },
+          student_name: { type: 'string', description: 'Tên học sinh để lọc 1 em (tùy chọn)' },
         },
         required: ['class_name'],
       },
