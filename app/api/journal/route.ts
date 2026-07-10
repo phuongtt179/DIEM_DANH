@@ -76,40 +76,38 @@ export async function POST(req: Request) {
   const keys = getGeminiKeys();
   if (!keys.length) return Response.json({ error: 'no_api_key' }, { status: 500 });
 
-  // Ưu tiên: nếu câu hỏi có khoảng thời gian → lọc theo NGÀY GHI
+  // Các bộ lọc: nhãn (#tag), yêu thích, khoảng thời gian
+  const tagFilters = Array.from(new Set((question.toLowerCase().match(/#([\p{L}\p{N}_]+)/gu) || []).map(t => t.slice(1))));
+  const favOnly = /y[êe]u\s*th[íi]ch|mục\s*thích|favorite/i.test(question);
   const range = detectDateRange(question);
+
+  const SEL = 'content, created_at, tags, is_favorite';
   let entries: any[] = [];
-  if (range) {
-    const { data } = await supabase
-      .from('journal_entries')
-      .select('content, created_at')
-      .gte('created_at', range.start)
-      .lte('created_at', range.end)
-      .order('created_at', { ascending: false })
-      .limit(100);
+  const hasFilter = tagFilters.length > 0 || favOnly || !!range;
+
+  if (hasFilter) {
+    let q = supabase.from('journal_entries').select(SEL);
+    if (tagFilters.length) q = q.overlaps('tags', tagFilters);
+    if (favOnly) q = q.eq('is_favorite', true);
+    if (range) q = q.gte('created_at', range.start).lte('created_at', range.end);
+    const { data } = await q.order('created_at', { ascending: false }).limit(100);
     entries = data || [];
     if (entries.length === 0) {
-      return Response.json({ answer: `Không có mục nhật ký nào trong ${range.label}.` });
+      const what = tagFilters.length ? `nhãn ${tagFilters.map(t => '#' + t).join(', ')}` : favOnly ? 'mục yêu thích' : range!.label;
+      return Response.json({ answer: `Không có mục nhật ký nào cho ${what}.` });
     }
   } else {
-    // Không có mốc thời gian → lọc theo từ khóa; không khớp thì lấy gần đây nhất
+    // Không có bộ lọc → lọc theo từ khóa; không khớp thì lấy gần đây nhất
     const kws = keywords(question);
     if (kws.length) {
       const orExpr = kws.map(w => `content.ilike.%${w}%`).join(',');
-      const { data } = await supabase
-        .from('journal_entries')
-        .select('content, created_at')
-        .or(orExpr)
-        .order('created_at', { ascending: false })
-        .limit(60);
+      const { data } = await supabase.from('journal_entries').select(SEL).or(orExpr)
+        .order('created_at', { ascending: false }).limit(60);
       entries = data || [];
     }
     if (entries.length === 0) {
-      const { data } = await supabase
-        .from('journal_entries')
-        .select('content, created_at')
-        .order('created_at', { ascending: false })
-        .limit(40);
+      const { data } = await supabase.from('journal_entries').select(SEL)
+        .order('created_at', { ascending: false }).limit(40);
       entries = data || [];
     }
   }
@@ -122,7 +120,11 @@ export async function POST(req: Request) {
     const d = new Date(s);
     return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
   };
-  const context = entries.map((e: any) => `[${fmtDate(e.created_at)}] ${e.content}`).join('\n');
+  const context = entries.map((e: any) => {
+    const tag = (e.tags && e.tags.length) ? ` (nhãn: ${e.tags.join(', ')})` : '';
+    const fav = e.is_favorite ? ' ⭐' : '';
+    return `[${fmtDate(e.created_at)}]${fav} ${e.content}${tag}`;
+  }).join('\n');
 
   const todayStr = (() => { const d = new Date(); const p = (n: number) => String(n).padStart(2, '0'); return `${p(d.getDate())}/${p(d.getMonth() + 1)}/${d.getFullYear()}`; })();
   const systemPrompt = `Hôm nay là ${todayStr}.
