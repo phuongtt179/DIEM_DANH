@@ -1125,7 +1125,11 @@ export async function POST(req: Request) {
     parts: [{ text: String(m.content || '') }],
   }));
 
-  const sysInstruction = { parts: [{ text: systemPrompt() }] };
+  // Khi người dùng vừa ĐỒNG Ý: ép model thực hiện ghi ngay, không tóm tắt/hỏi lại
+  const confirmNudge = writeConfirmed
+    ? '\n\n[QUAN TRỌNG] Tin nhắn cuối của người dùng là LỜI ĐỒNG Ý cho hành động bạn đã tóm tắt ở lượt trước. HÃY: (1) gọi công cụ tra cứu cần thiết để lấy lại id (find_students / get_student_classes / get_class_roster / find_assistant) NẾU chưa có, rồi (2) GỌI NGAY công cụ ghi tương ứng (mark_paid / save_attendance / add_student / transfer_student / rename_student / add_assistant / mark_assistant_taught). TUYỆT ĐỐI KHÔNG tóm tắt lại và KHÔNG hỏi xác nhận thêm lần nữa. Sau khi ghi xong mới báo kết quả.'
+    : '';
+  const sysInstruction = { parts: [{ text: systemPrompt() + confirmNudge }] };
 
   // Vòng lặp function-calling: model gọi hàm → ta chạy → trả kết quả → lặp tới khi có câu trả lời chữ
   for (let i = 0; i < 12; i++) {
