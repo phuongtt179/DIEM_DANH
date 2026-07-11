@@ -1100,6 +1100,28 @@ QUY TẮC TRÌNH BÀY (rất quan trọng):
 
 // ==================== HANDLER ====================
 
+// Các công cụ GHI (cần xác nhận)
+const WRITE_TOOLS = ['mark_paid', 'save_attendance', 'add_student', 'transfer_student', 'rename_student', 'add_assistant', 'mark_assistant_taught'];
+
+// Sau khi tự chạy các hành động đã lưu → nhờ model diễn đạt kết quả ngắn gọn (không dùng công cụ)
+async function phraseWriteResults(keys: string[], done: { name: string; result: any }[]): Promise<string> {
+  const payload = JSON.stringify({
+    systemInstruction: { parts: [{ text: 'Bạn vừa THỰC HIỆN xong các thao tác ghi dữ liệu (kết quả JSON bên dưới). Báo lại NGẮN GỌN bằng tiếng Việt: cái nào ok=true là đã xong (nêu tên/lớp/tháng/số tiền/số buổi nếu có), cái nào ok=false thì nói CHƯA ghi được kèm lý do. KHÔNG hỏi lại.' }] },
+    contents: [{ role: 'user', parts: [{ text: JSON.stringify(done) }] }],
+    generationConfig: { temperature: 0.2, maxOutputTokens: 800 },
+  });
+  try {
+    const res = await callGeminiRotate({ model: MODEL, keys, payload });
+    if (res.ok) {
+      const d = await res.json();
+      const t = (d.candidates?.[0]?.content?.parts || []).map((p: any) => p.text).filter(Boolean).join('').trim();
+      if (t) return t;
+    }
+  } catch { /* dùng fallback */ }
+  const okCount = done.filter(d => (d.result as any)?.ok).length;
+  return okCount === done.length ? '✅ Đã thực hiện xong.' : `Đã xử lý ${okCount}/${done.length} thao tác; một số chưa ghi được, kiểm tra lại giúp mình.`;
+}
+
 export async function POST(req: Request) {
   let body: any;
   try { body = await req.json(); } catch { return Response.json({ error: 'bad_request' }, { status: 400 }); }
@@ -1119,6 +1141,25 @@ export async function POST(req: Request) {
     !/\b(không|khong|đừng|dung|khỏi|khoi|hủy|huy|thôi|thoi|sai|chưa|chua)\b/.test(lastUserMsg) &&
     /\b(ok|oke|okê|okay|đồng ý|dong y|đúng|dúng|ừ|ừa|ù|vâng|vang|có|co|yes|chốt|chot|xác nhận|xac nhan|được|duoc|đc|ừm|um)\b/.test(lastUserMsg);
 
+  // Xác nhận "thuần" (chỉ ok/đúng..., không kèm số/nội dung mới) → tự chạy hành động đã lưu, KHÔNG hỏi model
+  const pureConfirm = writeConfirmed && !/\d/.test(lastUserMsg) && lastUserMsg.trim().length <= 15;
+  const pendingActions = Array.isArray(body?.pendingActions) ? body.pendingActions : [];
+
+  if (pureConfirm && pendingActions.length > 0) {
+    const done: { name: string; result: any }[] = [];
+    for (const pa of pendingActions) {
+      if (!pa || !WRITE_TOOLS.includes(pa.name)) continue;
+      let result: any;
+      try { result = await runTool(pa.name, pa.args || {}); }
+      catch (e) { result = { ok: false, error: String(e) }; }
+      done.push({ name: pa.name, result });
+    }
+    if (done.length > 0) {
+      const answer = await phraseWriteResults(keys, done);
+      return Response.json({ answer });
+    }
+  }
+
   // messages: [{ role:'user'|'ai', content }]
   const contents: any[] = messages.map((m: any) => ({
     role: m.role === 'ai' ? 'model' : 'user',
@@ -1130,6 +1171,9 @@ export async function POST(req: Request) {
     ? '\n\n[QUAN TRỌNG] Tin nhắn cuối của người dùng là LỜI ĐỒNG Ý cho hành động bạn đã tóm tắt ở lượt trước. HÃY: (1) gọi công cụ tra cứu cần thiết để lấy lại id (find_students / get_student_classes / get_class_roster / find_assistant) NẾU chưa có, rồi (2) GỌI NGAY công cụ ghi tương ứng (mark_paid / save_attendance / add_student / transfer_student / rename_student / add_assistant / mark_assistant_taught). TUYỆT ĐỐI KHÔNG tóm tắt lại và KHÔNG hỏi xác nhận thêm lần nữa. Sau khi ghi xong mới báo kết quả.'
     : '';
   const sysInstruction = { parts: [{ text: systemPrompt() + confirmNudge }] };
+
+  // Lưu các hành động ghi bị chặn (để client gửi lại khi người dùng "ok")
+  const blockedActions: { name: string; args: any }[] = [];
 
   // Vòng lặp function-calling: model gọi hàm → ta chạy → trả kết quả → lặp tới khi có câu trả lời chữ
   for (let i = 0; i < 12; i++) {
@@ -1168,8 +1212,9 @@ export async function POST(req: Request) {
       const responseParts: any[] = [];
       for (const fc of fnCalls) {
         let result: unknown;
-        // Chặn ghi khi chưa có xác nhận rõ ràng ở tin nhắn cuối
-        if (['mark_paid', 'save_attendance', 'add_student', 'transfer_student', 'rename_student', 'add_assistant', 'mark_assistant_taught'].includes(fc.name) && !writeConfirmed) {
+        // Chặn ghi khi chưa có xác nhận rõ ràng ở tin nhắn cuối → lưu lại để "ok" sau chạy thẳng
+        if (WRITE_TOOLS.includes(fc.name) && !writeConfirmed) {
+          blockedActions.push({ name: fc.name, args: fc.args || {} });
           result = {
             error: 'chua_xac_nhan',
             message: 'CHƯA được phép ghi. Hãy TÓM TẮT (tên, lớp, tháng, số tiền) rồi HỎI người dùng xác nhận. Chỉ ghi sau khi người dùng đồng ý.',
@@ -1192,7 +1237,8 @@ export async function POST(req: Request) {
 
     const answer = parts.map((p: any) => p.text).filter(Boolean).join('').trim();
     if (!answer) return Response.json({ error: 'empty' }, { status: 500 });
-    return Response.json({ answer });
+    // Kèm hành động đang chờ xác nhận để client gửi lại khi "ok"
+    return Response.json({ answer, pendingActions: blockedActions });
   }
 
   return Response.json({ error: 'too_many_steps' }, { status: 500 });

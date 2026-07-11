@@ -20,6 +20,7 @@ export default function ChatWidget() {
   const [chat, setChat] = useState<Msg[]>([]);
   const [loading, setLoading] = useState(false);
   const [errMsg, setErrMsg] = useState('');
+  const pendingRef = useRef<any[]>([]); // hành động ghi đang chờ xác nhận
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -48,7 +49,7 @@ export default function ChatWidget() {
       const res = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages: newChat }),
+        body: JSON.stringify({ messages: newChat, pendingActions: pendingRef.current }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.answer) {
@@ -64,6 +65,7 @@ export default function ChatWidget() {
         }
         return;
       }
+      pendingRef.current = Array.isArray(data.pendingActions) ? data.pendingActions : [];
       setChat([...newChat, { role: 'ai', content: data.answer }]);
     } catch {
       setErrMsg('Có lỗi mạng, thử lại nhé.');
