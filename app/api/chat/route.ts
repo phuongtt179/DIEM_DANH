@@ -260,9 +260,28 @@ async function toolStudentTotalPaid(args: { name: string; class_name?: string })
   const kw = normName(args.name);
   if (!kw) return { found: 0 };
   const { data: students } = await supabase.from('students').select('id, name');
-  const matched = (students || []).filter((s: any) => normName(s.name).includes(kw));
+  let matched = (students || []).filter((s: any) => normName(s.name).includes(kw));
   if (matched.length === 0) return { found: 0 };
 
+  // Nếu có tên lớp → resolve lớp; nếu nhiều em trùng tên thì dùng lớp để CHỌN đúng em
+  let classFilterName = '';
+  let classFilterId: string | null = null;
+  if (args.class_name) {
+    const r = await resolveClass(args.class_name);
+    if (!r.one) return { need_clarification: true, matches: (r.matches || []).map((c: any) => c.name) };
+    classFilterName = r.one.name;
+    classFilterId = r.one.id;
+    if (matched.length > 1) {
+      const ids = matched.map((s: any) => s.id);
+      const { data: rel } = await supabase.from('student_classes')
+        .select('student_id').eq('class_id', classFilterId).in('student_id', ids);
+      const inClass = new Set((rel || []).map((x: any) => x.student_id));
+      const narrowed = matched.filter((s: any) => inClass.has(s.id));
+      if (narrowed.length >= 1) matched = narrowed;
+    }
+  }
+
+  // Vẫn còn nhiều em trùng tên → hỏi lại (kèm lớp chính để phân biệt)
   if (matched.length > 1) {
     const ids = matched.map((s: any) => s.id);
     const { data: rels } = await supabase
@@ -272,6 +291,7 @@ async function toolStudentTotalPaid(args: { name: string; class_name?: string })
       .eq('is_primary', true);
     return {
       need_clarification: true,
+      ghi_chu: 'Có nhiều em trùng tên, hãy hỏi người dùng chọn đúng em (theo lớp).',
       matches: matched.map((s: any) => ({
         ten: s.name,
         lop: ((rels || []).find((r: any) => r.student_id === s.id) as any)?.classes?.name || '?',
@@ -280,19 +300,13 @@ async function toolStudentTotalPaid(args: { name: string; class_name?: string })
   }
 
   const s = matched[0];
-  let classFilterName = '';
   let q = supabase
     .from('payments')
     .select('amount, month, paid_date, class_id, classes ( name, status )')
     .eq('student_id', s.id)
     .eq('status', 'paid')
     .order('month', { ascending: true });
-  if (args.class_name) {
-    const r = await resolveClass(args.class_name);
-    if (!r.one) return { need_clarification: true, matches: (r.matches || []).map((c: any) => c.name) };
-    classFilterName = r.one.name;
-    q = q.eq('class_id', r.one.id);
-  }
+  if (classFilterId) q = q.eq('class_id', classFilterId);
   const { data: pays } = await q;
 
   return {
