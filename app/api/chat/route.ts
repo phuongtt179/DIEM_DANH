@@ -353,10 +353,10 @@ async function toolFindStudents(args: { name: string; class_name?: string; month
   if (!kw) return { found: 0 };
   const norm = (s: string) => s.trim().toLowerCase().replace(/\s+/g, ' ');
 
+  // Lấy TẤT CẢ quan hệ (không lọc charge_fee) để không bao giờ "không tìm thấy" em đang tồn tại
   const { data: rels } = await supabase
     .from('student_classes')
-    .select('charge_fee, students ( id, name, status ), classes ( id, name, tuition, status )')
-    .eq('charge_fee', true);
+    .select('charge_fee, students ( id, name, status ), classes ( id, name, tuition, status )');
 
   let list = (rels || []).filter((r: any) =>
     r.students && r.classes &&
@@ -389,6 +389,7 @@ async function toolFindStudents(args: { name: string; class_name?: string; month
         ten: r.students.name,
         class_id: r.classes.id,
         lop: r.classes.name,
+        thu_phi_lop_nay: !!r.charge_fee,
         hoc_phi_lop: r.classes.tuition,
         trang_thai_thang: p?.status === 'paid' ? 'đã đóng' : 'chưa đóng',
         so_tien_hien_tai: p?.amount ?? r.classes.tuition,
@@ -1049,8 +1050,9 @@ BẠN LÀM ĐƯỢC:
 Xóa học sinh và tạo/sửa/xóa LỚP thì CHƯA làm được — lịch sự nói đang phát triển.
 
 QUY TRÌNH THU HỌC PHÍ (bắt buộc theo đúng thứ tự, RẤT QUAN TRỌNG):
-1. Gọi find_students để tìm đúng em. LUÔN truyền tham số month ĐÚNG bằng tháng người dùng muốn thu (vd người dùng nói "tháng 6" → month="2026-06"; không nói tháng → tháng hiện tại). Truyền sai tháng sẽ ra số tiền sai.
-2. Nếu KHÔNG tìm thấy → báo người dùng. Nếu có NHIỀU em trùng tên → liệt kê cho người dùng chọn. Nếu em thuộc NHIỀU lớp thu phí mà chưa rõ lớp nào → hỏi lớp nào.
+1. Gọi find_students để tìm đúng em. LUÔN truyền tham số month ĐÚNG bằng tháng người dùng muốn thu (vd người dùng nói "tháng 6" → month="2026-06"; không nói tháng → tháng hiện tại). Truyền sai tháng sẽ ra số tiền sai. CHỈ truyền phần TÊN vào tham số name (đừng kèm "lớp B"); tên lớp truyền riêng qua class_name.
+   - LƯU Ý: find_students là công cụ DUY NHẤT để kiểm tra em có tồn tại. TUYỆT ĐỐI KHÔNG kết luận "không có em này" dựa vào get_payments hay get_debts (chúng chỉ liệt kê ai ĐÃ đóng / đang nợ, không phải danh sách toàn bộ học sinh). Nếu find_students trả về matches thì em CÓ tồn tại.
+2. Nếu find_students trả found=0 (thật sự không có) → báo người dùng. Nếu có NHIỀU em trùng tên → liệt kê cho người dùng chọn. Nếu em thuộc NHIỀU lớp mà chưa rõ lớp nào → hỏi lớp nào. Nếu lớp em đó có thu_phi_lop_nay=false → báo "lớp này không thu học phí em đó".
 3. Nếu em đó ở tháng này ĐÃ đóng rồi → báo cho người dùng biết, hỏi có muốn ghi đè không.
 4. SỐ TIỀN: dùng ĐÚNG "so_tien_hien_tai" mà find_students trả về cho từng em (đây là số em đang NỢ tháng đó, có thể mỗi em một khác). KHÔNG tự lấy học phí lớp cho tất cả. Chỉ đổi khi người dùng nói số khác (vd "đóng 300k").
 5. TÓM TẮT rõ trước khi ghi: "Xác nhận: [Tên] — [Lớp] — T[tháng]/[năm] — [số tiền]đ[ — ghi chú nếu có] → đánh dấu ĐÃ ĐÓNG. OK chứ?" rồi DỪNG LẠI chờ người dùng đồng ý.
