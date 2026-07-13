@@ -8,14 +8,14 @@ const MODEL = 'gemini-3.1-flash-lite';
 
 // ==================== HELPERS ====================
 
-function currentMonth(): string {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+// Ngày/tháng theo GIỜ VIỆT NAM (server Vercel chạy UTC → phải ép múi giờ, nếu không
+// sáng sớm VN sẽ bị lùi 1 ngày). 'en-CA' cho định dạng YYYY-MM-DD.
+function todayStr(): string {
+  return new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Ho_Chi_Minh' });
 }
 
-function todayStr(): string {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+function currentMonth(): string {
+  return todayStr().slice(0, 7);
 }
 
 // Sinh danh sách tháng từ 'from' đến 'to' (bao gồm cả hai), dạng YYYY-MM

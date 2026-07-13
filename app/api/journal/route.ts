@@ -24,29 +24,32 @@ function keywords(q: string): string[] {
 // Nhận diện khoảng thời gian trong câu hỏi → lọc nhật ký theo NGÀY GHI (created_at)
 function detectDateRange(q: string): { start: string; end: string; label: string } | null {
   const s = q.toLowerCase();
-  const now = new Date();
+  const VN = 7 * 3600 * 1000; // giờ VN = UTC+7 (không có DST)
   const day = 86400000;
-  const sod = (d: Date) => { const x = new Date(d); x.setHours(0, 0, 0, 0); return x; };
-  const eod = (d: Date) => { const x = new Date(d); x.setHours(23, 59, 59, 999); return x; };
-  const iso = (d: Date) => d.toISOString();
+  // now dịch +7h để getUTC* trả về "giờ tường" VN
+  const now = new Date(Date.now() + VN);
+  const iso = (t: number) => new Date(t).toISOString();
+  // đầu/cuối NGÀY VN (theo mốc ref) quy về mốc UTC thật để so với created_at
+  const sod = (ref: Date) => Date.UTC(ref.getUTCFullYear(), ref.getUTCMonth(), ref.getUTCDate(), 0, 0, 0) - VN;
+  const eod = (ref: Date) => Date.UTC(ref.getUTCFullYear(), ref.getUTCMonth(), ref.getUTCDate(), 23, 59, 59, 999) - VN;
 
   if (/tu[àa]n\s*(này|nay|tr[ưuữ]ớc)/.test(s)) {
-    const dow = (now.getDay() + 6) % 7; // Thứ 2 = 0
-    const monday = sod(new Date(now.getTime() - dow * day));
+    const dow = (now.getUTCDay() + 6) % 7; // Thứ 2 = 0
+    const monday = new Date(now.getTime() - dow * day);
     if (/tr[ưuữ]ớc/.test(s)) {
       const prevMon = new Date(monday.getTime() - 7 * day);
-      const prevSun = eod(new Date(monday.getTime() - day));
-      return { start: iso(prevMon), end: iso(prevSun), label: 'tuần trước' };
+      const prevSun = new Date(monday.getTime() - day);
+      return { start: iso(sod(prevMon)), end: iso(eod(prevSun)), label: 'tuần trước' };
     }
-    return { start: iso(monday), end: iso(eod(now)), label: 'tuần này' };
+    return { start: iso(sod(monday)), end: iso(eod(now)), label: 'tuần này' };
   }
   if (/th[áaá]ng\s*(này|nay|tr[ưuữ]ớc)/.test(s)) {
     if (/tr[ưuữ]ớc/.test(s)) {
-      const first = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-      const last = eod(new Date(now.getFullYear(), now.getMonth(), 0));
-      return { start: iso(sod(first)), end: iso(last), label: 'tháng trước' };
+      const first = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1));
+      const last = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 0));
+      return { start: iso(sod(first)), end: iso(eod(last)), label: 'tháng trước' };
     }
-    const first = new Date(now.getFullYear(), now.getMonth(), 1);
+    const first = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
     return { start: iso(sod(first)), end: iso(eod(now)), label: 'tháng này' };
   }
   if (/hôm\s*qua|bữa\s*qua/.test(s)) {
@@ -126,7 +129,7 @@ export async function POST(req: Request) {
     return `[${fmtDate(e.created_at)}]${fav} ${e.content}${tag}`;
   }).join('\n');
 
-  const todayStr = (() => { const d = new Date(); const p = (n: number) => String(n).padStart(2, '0'); return `${p(d.getDate())}/${p(d.getMonth() + 1)}/${d.getFullYear()}`; })();
+  const todayStr = new Date().toLocaleDateString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' }); // dd/mm/yyyy giờ VN
   const systemPrompt = `Hôm nay là ${todayStr}.
 Bạn giúp chủ nhân tra cứu NHẬT KÝ CÁ NHÂN của họ. Chỉ được dựa vào các mục nhật ký dưới đây, KHÔNG bịa thêm.
 - Trả lời ngắn gọn, đúng trọng tâm câu hỏi, bằng tiếng Việt.
