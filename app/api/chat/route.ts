@@ -18,6 +18,17 @@ function currentMonth(): string {
   return todayStr().slice(0, 7);
 }
 
+// Chuẩn hóa tên để so khớp: gộp dấu Unicode (NFC), bỏ ký tự ẩn (zero-width),
+// bỏ non-breaking space, gộp khoảng trắng, thường hóa. Fix lỗi "tên nhìn giống mà không khớp".
+function normName(s: string): string {
+  return (s || '')
+    .normalize('NFC')
+    .replace(/\p{Cf}/gu, '')
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 // Sinh danh sách tháng từ 'from' đến 'to' (bao gồm cả hai), dạng YYYY-MM
 function monthRange(from: string, to: string): string[] {
   const months: string[] = [];
@@ -35,16 +46,14 @@ function monthRange(from: string, to: string): string[] {
 // Trả về { one } nếu khớp đúng 1 lớp, hoặc { matches } nếu nhiều/không có.
 async function resolveClass(className: string) {
   const { data } = await supabase.from('classes').select('id, name, tuition, status').order('name');
-  // Chuẩn hóa: thường hóa, gộp khoảng trắng thừa
-  const norm = (s: string) => s.trim().toLowerCase().replace(/\s+/g, ' ');
-  const kw = norm(className);
+  const kw = normName(className);
 
   // 1) Ưu tiên khớp CHÍNH XÁC tên (để "KN35 TH" không bị lẫn với "KN35 THCS")
-  const exact = (data || []).filter((c: any) => norm(c.name) === kw);
+  const exact = (data || []).filter((c: any) => normName(c.name) === kw);
   if (exact.length === 1) return { one: exact[0] };
 
   // 2) Không có khớp chính xác → xét khớp một phần
-  const partial = (data || []).filter((c: any) => norm(c.name).includes(kw));
+  const partial = (data || []).filter((c: any) => normName(c.name).includes(kw));
   if (partial.length === 1) return { one: partial[0] };
 
   return { matches: partial };
@@ -106,8 +115,7 @@ async function computeDebts(months: string[], classNameFilter?: string) {
   (pays || []).filter((p: any) => p.status === 'unpaid')
     .forEach((p: any) => customAmount.set(`${p.student_id}-${p.class_id}-${p.month}`, p.amount));
   // classNameFilter đã được resolveClass chuẩn hóa về đúng 1 tên lớp → so khớp CHÍNH XÁC
-  const norm = (s: string) => s.trim().toLowerCase().replace(/\s+/g, ' ');
-  const kw = classNameFilter ? norm(classNameFilter) : '';
+  const kw = classNameFilter ? normName(classNameFilter) : '';
 
   const debts: { name: string; class: string; month: string; amount: number }[] = [];
   for (const month of months) {
@@ -115,7 +123,7 @@ async function computeDebts(months: string[], classNameFilter?: string) {
       const cls = (sc as any).classes;
       const st = (sc as any).students;
       if (!cls || !st || cls.status === 'locked') continue;
-      if (kw && norm(cls.name) !== kw) continue;
+      if (kw && normName(cls.name) !== kw) continue;
       const enrolledMonth = (sc as any).enrolled_at ? (sc as any).enrolled_at.substring(0, 7) : month;
       if (month < enrolledMonth) continue;
       const key = `${st.id}-${cls.id}-${month}`;
@@ -247,12 +255,12 @@ async function toolGetCollections(args: { month: string; class_name?: string }) 
   };
 }
 
-// Tổng số tiền 1 học sinh đã nộp cho trung tâm từ đầu đến giờ (mọi lớp, mọi tháng).
-async function toolStudentTotalPaid(args: { name: string }) {
-  const kw = (args.name || '').trim().toLowerCase();
+// Tổng/lịch sử tiền 1 học sinh đã nộp. class_name để lọc theo 1 lớp (tùy chọn).
+async function toolStudentTotalPaid(args: { name: string; class_name?: string }) {
+  const kw = normName(args.name);
   if (!kw) return { found: 0 };
   const { data: students } = await supabase.from('students').select('id, name');
-  const matched = (students || []).filter((s: any) => s.name.toLowerCase().includes(kw));
+  const matched = (students || []).filter((s: any) => normName(s.name).includes(kw));
   if (matched.length === 0) return { found: 0 };
 
   if (matched.length > 1) {
@@ -272,18 +280,32 @@ async function toolStudentTotalPaid(args: { name: string }) {
   }
 
   const s = matched[0];
-  const { data: pays } = await supabase
+  let classFilterName = '';
+  let q = supabase
     .from('payments')
-    .select('amount, month, paid_date, classes ( name )')
+    .select('amount, month, paid_date, class_id, classes ( name, status )')
     .eq('student_id', s.id)
     .eq('status', 'paid')
     .order('month', { ascending: true });
+  if (args.class_name) {
+    const r = await resolveClass(args.class_name);
+    if (!r.one) return { need_clarification: true, matches: (r.matches || []).map((c: any) => c.name) };
+    classFilterName = r.one.name;
+    q = q.eq('class_id', r.one.id);
+  }
+  const { data: pays } = await q;
 
   return {
     ten: s.name,
+    loc_theo_lop: classFilterName || 'tất cả lớp',
     so_lan_nop: (pays || []).length,
     tong_da_nop: (pays || []).reduce((sum: number, p: any) => sum + (p.amount || 0), 0),
-    chi_tiet: (pays || []).map((p: any) => ({ thang: p.month, lop: p.classes?.name, so_tien: p.amount, ngay_thu: p.paid_date })),
+    chi_tiet: (pays || []).map((p: any) => ({
+      thang: p.month,
+      lop: (p.classes?.name || '?') + (p.classes?.status === 'locked' ? ' (đã khóa)' : ''),
+      so_tien: p.amount,
+      ngay_thu: p.paid_date,
+    })),
   };
 }
 
@@ -331,8 +353,8 @@ async function toolAttendanceSummary(args: { class_name: string; month: string; 
 
   let list = Object.values(per);
   if (args.student_name) {
-    const kw = args.student_name.trim().toLowerCase();
-    list = list.filter(x => x.name.toLowerCase().includes(kw));
+    const kw = normName(args.student_name);
+    list = list.filter(x => normName(x.name).includes(kw));
   }
   list.sort((a, b) => b.vang - a.vang);
 
@@ -349,9 +371,8 @@ async function toolAttendanceSummary(args: { class_name: string; month: string; 
 // Tìm học sinh (kèm các lớp có thu phí + trạng thái đóng tháng) để xác định đúng đối tượng trước khi ghi.
 async function toolFindStudents(args: { name: string; class_name?: string; month?: string }) {
   const month = args.month || currentMonth();
-  const kw = (args.name || '').trim().toLowerCase();
+  const kw = normName(args.name);
   if (!kw) return { found: 0 };
-  const norm = (s: string) => s.trim().toLowerCase().replace(/\s+/g, ' ');
 
   // Lấy TẤT CẢ quan hệ (không lọc charge_fee) để không bao giờ "không tìm thấy" em đang tồn tại
   const { data: rels } = await supabase
@@ -360,14 +381,14 @@ async function toolFindStudents(args: { name: string; class_name?: string; month
 
   let list = (rels || []).filter((r: any) =>
     r.students && r.classes &&
-    r.students.name.toLowerCase().includes(kw) &&
+    normName(r.students.name).includes(kw) &&
     r.classes.status !== 'locked' &&
     r.students.status !== 'on_leave'
   );
   if (args.class_name) {
-    const cn = norm(args.class_name);
-    const exact = list.filter((r: any) => norm(r.classes.name) === cn);
-    list = exact.length ? exact : list.filter((r: any) => norm(r.classes.name).includes(cn));
+    const cn = normName(args.class_name);
+    const exact = list.filter((r: any) => normName(r.classes.name) === cn);
+    list = exact.length ? exact : list.filter((r: any) => normName(r.classes.name).includes(cn));
   }
   if (list.length === 0) return { found: 0, month };
 
@@ -514,10 +535,10 @@ async function toolSaveAttendance(args: { class_id: string; date?: string; absen
 
 // Tìm học sinh kèm tất cả lớp (chính/phụ + có thu phí không). Dùng để chuyển lớp / xem thông tin.
 async function toolGetStudentClasses(args: { name: string }) {
-  const kw = (args.name || '').trim().toLowerCase();
+  const kw = normName(args.name);
   if (!kw) return { found: 0 };
   const { data: students } = await supabase.from('students').select('id, name, status');
-  const matched = (students || []).filter((s: any) => s.name.toLowerCase().includes(kw));
+  const matched = (students || []).filter((s: any) => normName(s.name).includes(kw));
   if (matched.length === 0) return { found: 0 };
 
   const ids = matched.map((s: any) => s.id);
@@ -633,11 +654,10 @@ async function toolRenameStudent(args: { student_id: string; new_name: string })
 
 async function resolveAssistant(name: string) {
   const { data } = await supabase.from('assistants').select('id, name');
-  const norm = (s: string) => s.trim().toLowerCase().replace(/\s+/g, ' ');
-  const kw = norm(name);
-  const exact = (data || []).filter((a: any) => norm(a.name) === kw);
+  const kw = normName(name);
+  const exact = (data || []).filter((a: any) => normName(a.name) === kw);
   if (exact.length === 1) return { one: exact[0] as any };
-  const partial = (data || []).filter((a: any) => norm(a.name).includes(kw));
+  const partial = (data || []).filter((a: any) => normName(a.name).includes(kw));
   if (partial.length === 1) return { one: partial[0] as any };
   return { matches: partial as any[] };
 }
@@ -841,10 +861,13 @@ const TOOLS = [{
     },
     {
       name: 'get_student_total_paid',
-      description: 'Tổng số tiền MỘT học sinh đã nộp cho trung tâm từ trước đến nay (mọi lớp, mọi tháng), kèm chi tiết từng lần.',
+      description: 'Tổng/lịch sử tiền MỘT học sinh đã nộp (kèm chi tiết từng lần). Nếu người dùng nêu tên LỚP thì truyền class_name để chỉ lấy lịch sử của lớp đó.',
       parameters: {
         type: 'object',
-        properties: { name: { type: 'string', description: 'Tên (một phần) học sinh' } },
+        properties: {
+          name: { type: 'string', description: 'Tên (một phần) học sinh' },
+          class_name: { type: 'string', description: 'Tên lớp để lọc (tùy chọn) — dùng khi người dùng hỏi lịch sử của 1 lớp cụ thể' },
+        },
         required: ['name'],
       },
     },
