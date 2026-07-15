@@ -52,6 +52,15 @@ function detectDateRange(q: string): { start: string; end: string; label: string
     const first = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
     return { start: iso(sod(first)), end: iso(eod(now)), label: 'tháng này' };
   }
+  // Tháng CỤ THỂ: "tháng 7", "tháng 6/2026", "tháng 7 năm 2026"
+  const mMonth = s.match(/th[áaá]ng\s*(\d{1,2})(?:\s*[\/\-]\s*(\d{4})|\s*năm\s*(\d{4}))?/);
+  if (mMonth) {
+    const mo = Math.min(12, Math.max(1, parseInt(mMonth[1])));
+    const yr = parseInt(mMonth[2] || mMonth[3] || String(now.getUTCFullYear()));
+    const first = new Date(Date.UTC(yr, mo - 1, 1));
+    const last = new Date(Date.UTC(yr, mo, 0));
+    return { start: iso(sod(first)), end: iso(eod(last)), label: `tháng ${mo}/${yr}` };
+  }
   if (/hôm\s*qua|bữa\s*qua/.test(s)) {
     const y = new Date(now.getTime() - day);
     return { start: iso(sod(y)), end: iso(eod(y)), label: 'hôm qua' };

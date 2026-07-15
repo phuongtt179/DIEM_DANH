@@ -10,18 +10,38 @@ type Msg = { role: 'user' | 'system'; content: string };
 interface Entry { id: string; content: string; created_at: string; tags: string[] | null; is_favorite: boolean; }
 
 // Nhận diện ý định theo tiền tố "lưu:" / "hỏi:"
-function parseIntent(raw: string): { action: 'save' | 'ask' | 'unknown'; content: string } {
-  const m = raw.trim().match(/^(lưu|luu|hỏi|hoi)\s*[:：]\s*([\s\S]*)$/i);
+function parseIntent(raw: string): { action: 'save' | 'ask' | 'unknown'; dateStr: string | null; content: string } {
+  // Cho phép ghi lùi ngày: "lưu 14/7: ..." hoặc "lưu 14/7/2026: ..."
+  const m = raw.trim().match(/^(lưu|luu|hỏi|hoi)\s*(\d{1,2}[\/\-]\d{1,2}(?:[\/\-]\d{2,4})?)?\s*[:：]\s*([\s\S]*)$/i);
   if (m) {
     const key = m[1].toLowerCase();
-    return { action: (key === 'lưu' || key === 'luu') ? 'save' : 'ask', content: m[2].trim() };
+    return { action: (key === 'lưu' || key === 'luu') ? 'save' : 'ask', dateStr: m[2] || null, content: m[3].trim() };
   }
-  return { action: 'unknown', content: raw.trim() };
+  return { action: 'unknown', dateStr: null, content: raw.trim() };
 }
 
 // Tách #nhãn từ nội dung
 function extractTags(text: string): string[] {
   return Array.from(new Set((text.toLowerCase().match(/#([\p{L}\p{N}_]+)/gu) || []).map(t => t.slice(1))));
+}
+
+// Tính ngày ghi (created_at) từ tiền tố "lưu 14/7:" hoặc dòng đầu "ngày 14/7/2026". Null = mặc định hôm nay.
+function resolveEntryDateISO(dateStr: string | null, content: string): string | null {
+  const build = (d: number, mo: number, y?: number): string | null => {
+    if (mo < 1 || mo > 12 || d < 1 || d > 31) return null;
+    const year = y ? (y < 100 ? 2000 + y : y) : new Date().getFullYear();
+    // đặt buổi trưa giờ VN để nằm gọn trong ngày đó
+    return new Date(`${year}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}T12:00:00+07:00`).toISOString();
+  };
+  if (dateStr) {
+    const m = dateStr.match(/^(\d{1,2})[\/\-](\d{1,2})(?:[\/\-](\d{2,4}))?$/);
+    if (m) return build(parseInt(m[1]), parseInt(m[2]), m[3] ? parseInt(m[3]) : undefined);
+  }
+  // Fallback: dòng đầu có "14/7" hoặc "ngày 14/7/2026"
+  const first = (content.split('\n')[0] || '').slice(0, 60);
+  const m2 = first.match(/(\d{1,2})[\/\-](\d{1,2})(?:[\/\-](\d{2,4}))?/);
+  if (m2) return build(parseInt(m2[1]), parseInt(m2[2]), m2[3] ? parseInt(m2[3]) : undefined);
+  return null;
 }
 
 function fmt(s: string) {
@@ -68,7 +88,7 @@ export default function JournalPage() {
   async function send() {
     const raw = input.trim();
     if (!raw || loading) return;
-    const { action, content } = parseIntent(raw);
+    const { action, dateStr, content } = parseIntent(raw);
     setMsgs(m => [...m, { role: 'user', content: raw }]);
     setInput('');
     if (inputRef.current) inputRef.current.style.height = 'auto';
@@ -86,8 +106,12 @@ export default function JournalPage() {
     try {
       if (action === 'save') {
         const tags = extractTags(content);
-        const { error } = await supabase.from('journal_entries').insert([{ content, tags }]);
-        setMsgs(m => [...m, { role: 'system', content: error ? '⚠️ Lỗi khi lưu — đã chạy SQL thêm cột tags/is_favorite chưa?' : `✅ Đã lưu${tags.length ? ' (nhãn: ' + tags.join(', ') + ')' : ''}.` }]);
+        const createdISO = resolveEntryDateISO(dateStr, content);
+        const row: any = { content, tags };
+        if (createdISO) row.created_at = createdISO;
+        const { error } = await supabase.from('journal_entries').insert([row]);
+        const dayLabel = createdISO ? ' (ngày ' + new Date(createdISO).toLocaleDateString('vi-VN') + ')' : '';
+        setMsgs(m => [...m, { role: 'system', content: error ? '⚠️ Lỗi khi lưu — đã chạy SQL thêm cột tags/is_favorite chưa?' : `✅ Đã lưu${dayLabel}${tags.length ? ' — nhãn: ' + tags.join(', ') : ''}.` }]);
       } else {
         const res = await fetch('/api/journal', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ question: content }) });
         const data = await res.json().catch(() => ({}));
