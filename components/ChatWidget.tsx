@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
+import { usePathname } from 'next/navigation';
 import { Sparkles, Loader2, Send, X, Bot } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 
@@ -15,6 +16,7 @@ const SUGGESTIONS = [
 
 export default function ChatWidget() {
   const { user } = useAuth();
+  const pathname = usePathname();
   const [open, setOpen] = useState(false);
   const [input, setInput] = useState('');
   const [chat, setChat] = useState<Msg[]>([]);
@@ -28,8 +30,9 @@ export default function ChatWidget() {
     if (open) bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [chat, loading, open]);
 
-  // Chỉ Admin mới thấy trợ lý
+  // Chỉ Admin mới thấy trợ lý; ẩn ở trang Nhật ký và Trợ lý AI (đã có khung chat riêng, tránh nhầm)
   if (!user || user.role !== 'admin') return null;
+  if (pathname === '/journal' || pathname === '/chat') return null;
 
   function autoGrow(el: HTMLTextAreaElement) {
     el.style.height = 'auto';
