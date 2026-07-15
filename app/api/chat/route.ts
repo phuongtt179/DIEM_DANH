@@ -1142,6 +1142,34 @@ QUY TẮC TRÌNH BÀY (rất quan trọng):
 // Các công cụ GHI (cần xác nhận)
 const WRITE_TOOLS = ['mark_paid', 'save_attendance', 'add_student', 'transfer_student', 'rename_student', 'add_assistant', 'mark_assistant_taught'];
 
+// Tên gọi (tên riêng) = từ cuối của họ tên đầy đủ. VD "Nguyễn Thị Trúc" → "Trúc".
+function givenName(full: string): string {
+  const parts = (full || '').trim().split(/\s+/);
+  return parts[parts.length - 1] || (full || '').trim();
+}
+
+// Sinh 1 thông báo học phí để CHỦ TRUNG TÂM copy gửi phụ huynh (từ kết quả mark_paid ok=true).
+function buildParentNotice(r: any): string {
+  const mo = parseInt(String(r?.thang || '').split('-')[1] || '0', 10);
+  const ten = givenName(r?.ten || '');
+  return `✅ TT_BNP_LẬP_TRÌNH_SÁNG_TẠO XÁC NHẬN HỌC PHÍ
+
+TT đã nhận được học phí tháng ${mo} của em ${ten}.
+
+Xin chân thành cảm ơn sự đồng hành và phối hợp của quý phụ huynh trong quá trình học tập của các em.
+
+Kính chúc gia đình nhiều sức khỏe.`;
+}
+
+// Gộp các thông báo phụ huynh (mỗi em 1 thông báo, có gạch ngăn để dễ copy từng cái).
+function noticesBlock(paidResults: any[]): string {
+  if (!paidResults.length) return '';
+  const header = paidResults.length > 1
+    ? `📋 ${paidResults.length} thông báo gửi phụ huynh (copy từng đoạn):\n\n`
+    : '📋 Thông báo gửi phụ huynh (copy đoạn dưới):\n\n';
+  return '\n\n' + header + paidResults.map(buildParentNotice).join('\n\n─────────────\n\n');
+}
+
 // Sau khi tự chạy các hành động đã lưu → nhờ model diễn đạt kết quả ngắn gọn (không dùng công cụ)
 async function phraseWriteResults(keys: string[], done: { name: string; result: any }[]): Promise<string> {
   const payload = JSON.stringify({
@@ -1195,7 +1223,9 @@ export async function POST(req: Request) {
     }
     if (done.length > 0) {
       const answer = await phraseWriteResults(keys, done);
-      return Response.json({ answer });
+      // Mỗi em vừa đóng phí thành công → kèm 1 thông báo để copy gửi phụ huynh
+      const paid = done.filter(d => d.name === 'mark_paid' && d.result?.ok).map(d => d.result);
+      return Response.json({ answer: answer + noticesBlock(paid) });
     }
   }
 
@@ -1213,6 +1243,8 @@ export async function POST(req: Request) {
 
   // Lưu các hành động ghi bị chặn (để client gửi lại khi người dùng "ok")
   const blockedActions: { name: string; args: any }[] = [];
+  // Kết quả mark_paid thành công trong lượt này → sinh thông báo phụ huynh
+  const paidResults: any[] = [];
 
   // Vòng lặp function-calling: model gọi hàm → ta chạy → trả kết quả → lặp tới khi có câu trả lời chữ
   for (let i = 0; i < 12; i++) {
@@ -1261,6 +1293,7 @@ export async function POST(req: Request) {
         } else {
           try {
             result = await runTool(fc.name, fc.args || {});
+            if (fc.name === 'mark_paid' && (result as any)?.ok) paidResults.push(result);
           } catch (e) {
             console.error('[chat] tool error', fc.name, e);
             result = { error: 'tool_failed', message: String(e) };
@@ -1276,8 +1309,8 @@ export async function POST(req: Request) {
 
     const answer = parts.map((p: any) => p.text).filter(Boolean).join('').trim();
     if (!answer) return Response.json({ error: 'empty' }, { status: 500 });
-    // Kèm hành động đang chờ xác nhận để client gửi lại khi "ok"
-    return Response.json({ answer, pendingActions: blockedActions });
+    // Kèm thông báo phụ huynh (mỗi em 1 cái) + hành động đang chờ xác nhận để client gửi lại khi "ok"
+    return Response.json({ answer: answer + noticesBlock(paidResults), pendingActions: blockedActions });
   }
 
   return Response.json({ error: 'too_many_steps' }, { status: 500 });

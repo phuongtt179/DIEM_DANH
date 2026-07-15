@@ -9,7 +9,19 @@
       "Bash(git commit:*)",
       "Bash(git remote add:*)",
       "Bash(git branch:*)",
-      "Bash(git push:*)"
+      "Bash(git push:*)",
+      "Bash(git restore *)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "Bash(git push *)",
+      "Bash(ls next.config.*)",
+      "Bash(ls -d app/api)",
+      "Bash(ls tsconfig.json)",
+      "Bash(npx tsc *)",
+      "Bash(git check-ignore *)",
+      "Bash(cd \"e:/UNG DUNG/NHAT-KY-DOC-SACH\" 2>/dev/null && echo \"=== Cấu trúc \\(bỏ node_modules\\) ===\" && find . -type f -not -path './node_modules/*' -not -path './.git/*' -not -path './.next/*' -not -path './dist/*' | head -80 && echo \"\" && echo \"=== package.json ===\" && cat package.json 2>/dev/null | head -60)",
+      "Read(//e/UNG DUNG/NHAT-KY-DOC-SACH/**)",
+      "Bash(cd \"e:/UNG DUNG/NHAT-KY-DOC-SACH\" && echo \"=== Dart source \\(lib\\) ===\" && find reading_journal/lib -type f -name \"*.dart\" 2>/dev/null | head -80)"
     ]
   }
 }
