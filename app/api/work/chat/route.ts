@@ -1,6 +1,6 @@
 import { supabase } from '@/lib/supabase';
 import { getGeminiKeys, callGeminiRotate, isDailyLimit } from '@/lib/gemini';
-import { rangeVN, eventDateVN, sortEvents, todayVN, type WpEvent } from '@/lib/work';
+import { rangeVN, eventDateVN, sortEvents, todayVN, summarize, type WpEvent, type WpStats } from '@/lib/work';
 
 export const maxDuration = 30;
 const MODEL = 'gemini-3.1-flash-lite';
@@ -102,12 +102,19 @@ async function toolUpdateEvent(ownerId: string, args: any) {
   return { ok: true, event: data as WpEvent };
 }
 
+async function toolGetStats(ownerId: string, args: any) {
+  const all = await fetchOwnerEvents(ownerId);
+  const stats = summarize(all, typeof args?.month === 'string' ? args.month : undefined, todayVN());
+  return { stats };
+}
+
 async function runTool(ownerId: string, name: string, args: any): Promise<any> {
   switch (name) {
     case 'add_event': return toolAddEvent(ownerId, args);
     case 'find_events': return toolFindEvents(ownerId, args);
     case 'list_events': return toolListEvents(ownerId, args);
     case 'update_event': return toolUpdateEvent(ownerId, args);
+    case 'get_stats': return toolGetStats(ownerId, args);
     default: return { error: `unknown_tool: ${name}` };
   }
 }
@@ -165,6 +172,14 @@ const TOOLS = [{
         required: ['id', 'op'],
       },
     },
+    {
+      name: 'get_stats',
+      description: 'Tổng hợp/thống kê công việc theo tháng: tổng số, đã xong, còn lại, quá hạn, số sự kiện vs việc, và so với tháng trước. Dùng khi người dùng hỏi "tổng hợp", "tháng này bao nhiêu việc", "đã xong bao nhiêu", "bận hơn tháng trước không".',
+      parameters: {
+        type: 'object',
+        properties: { month: { type: 'string', description: 'Tháng "YYYY-MM" (bỏ trống = tháng hiện tại)' } },
+      },
+    },
   ],
 }];
 
@@ -177,6 +192,7 @@ Hôm nay là ${today} (giờ Việt Nam).
 BẠN LÀM ĐƯỢC:
 - THÊM VIỆC: người dùng gõ tự nhiên ("họp phụ huynh 8h thứ 6", "nhắc nộp báo cáo trước 25/7") HOẶC dán nguyên GIẤY MỜI / TIN ZALO. Bạn tự bóc tách rồi gọi add_event.
 - TRA CỨU: "hôm nay/tuần này/tháng này có gì", "việc nào chưa xong", "có việc gì quá hạn", "ngày mai cần chuẩn bị gì" → gọi list_events.
+- TỔNG HỢP/THỐNG KÊ: "tổng hợp tháng", "tháng này bao nhiêu việc", "đã xong bao nhiêu / còn tồn", "bận hơn tháng trước không" → gọi get_stats (ứng dụng sẽ hiện THẺ TỔNG HỢP; bạn chỉ cần trả 1 câu ngắn như "Tổng hợp tháng 7 👇").
 - SỬA/HỦY/XÓA/DỜI: gọi find_events lấy id rồi update_event.
 
 BÓC TÁCH GIẤY MỜI (rất quan trọng):
@@ -219,6 +235,7 @@ export async function POST(req: Request) {
 
   const sysInstruction = { parts: [{ text: systemPrompt() }] };
   const cardMap = new Map<string, WpEvent>();  // công việc để render thành card
+  let statsOut: WpStats | null = null;         // thẻ tổng hợp (nếu có)
 
   const collect = (result: any) => {
     if (result?.event?.id) cardMap.set(result.event.id, result.event);
@@ -226,6 +243,7 @@ export async function POST(req: Request) {
       if (e?.id) cardMap.set(e.id, e);
     }
     if (result?.deleted && result?.id) cardMap.delete(result.id);
+    if (result?.stats) statsOut = result.stats;
   };
 
   for (let i = 0; i < 10; i++) {
@@ -275,7 +293,7 @@ export async function POST(req: Request) {
 
     const answer = parts.map((p: any) => p.text).filter(Boolean).join('').trim();
     const events = [...cardMap.values()].sort(sortEvents);
-    return Response.json({ answer: answer || 'Xong 👇', events });
+    return Response.json({ answer: answer || 'Xong 👇', events, stats: statsOut });
   }
 
   return Response.json({ error: 'too_many_steps' }, { status: 500 });

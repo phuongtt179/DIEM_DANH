@@ -87,3 +87,48 @@ export function sortEvents(a: WpEvent, b: WpEvent): number {
   const tb = b.start_at ? new Date(b.start_at).getTime() : 0;
   return ta - tb;
 }
+
+// ---- GĐ2: thống kê tháng ----
+
+// Tháng hiện tại theo giờ VN, dạng 'YYYY-MM'
+export function currentMonthVN(): string { return todayVN().slice(0, 7); }
+
+// Khoảng ngày của 1 tháng 'YYYY-MM' → [start,end] + tháng liền trước
+export function monthMeta(ym?: string): { ym: string; start: string; end: string; label: string; prev: string } {
+  const m = ym && /^\d{4}-\d{2}$/.test(ym) ? ym : currentMonthVN();
+  const [y, mo] = m.split('-').map(Number);
+  const last = new Date(Date.UTC(y, mo, 0)).getUTCDate();
+  const prev = mo === 1 ? `${y - 1}-12` : `${y}-${pad(mo - 1)}`;
+  return { ym: m, start: `${m}-01`, end: `${m}-${pad(last)}`, label: `Tháng ${mo}/${y}`, prev };
+}
+
+export interface WpStats {
+  month: string; label: string;
+  total: number; done: number; active: number; overdue: number;
+  events: number; tasks: number;
+  prevTotal: number; trend: 'more' | 'less' | 'same';
+}
+
+function countInMonth(all: WpEvent[], start: string, end: string): WpEvent[] {
+  return all.filter(e => { const wd = eventDateVN(e); return wd >= start && wd <= end; });
+}
+
+// Tổng hợp cho 1 tháng, dựa trên danh sách công việc CHƯA HỦY của người dùng.
+export function summarize(all: WpEvent[], ym?: string, today = todayVN()): WpStats {
+  const { ym: m, start, end, label, prev } = monthMeta(ym);
+  const inMonth = countInMonth(all, start, end);
+  const p = monthMeta(prev);
+  const prevTotal = countInMonth(all, p.start, p.end).length;
+  const total = inMonth.length;
+  const trend: 'more' | 'less' | 'same' = total > prevTotal ? 'more' : total < prevTotal ? 'less' : 'same';
+  return {
+    month: m, label,
+    total,
+    done: inMonth.filter(e => e.status === 'done').length,
+    active: inMonth.filter(e => e.status === 'active').length,
+    overdue: inMonth.filter(e => e.status === 'active' && eventDateVN(e) < today).length,
+    events: inMonth.filter(e => e.type === 'event').length,
+    tasks: inMonth.filter(e => e.type === 'task').length,
+    prevTotal, trend,
+  };
+}

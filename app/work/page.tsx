@@ -2,16 +2,17 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import { CalendarClock, Loader2, Send, Check, Trash2, RotateCcw, CalendarDays, CalendarRange, Calendar } from 'lucide-react';
+import { CalendarClock, Loader2, Send, Check, Trash2, RotateCcw, CalendarDays, CalendarRange, Calendar, BarChart3 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
-import { deriveState, type WpEvent, type WpState } from '@/lib/work';
+import { deriveState, type WpEvent, type WpState, type WpStats } from '@/lib/work';
 
 type Block =
   | { kind: 'user'; text: string }
   | { kind: 'ai'; text: string }
   | { kind: 'label'; text: string }
   | { kind: 'empty'; text: string }
-  | { kind: 'cards'; events: WpEvent[] };
+  | { kind: 'cards'; events: WpEvent[] }
+  | { kind: 'stats'; stats: WpStats };
 
 const QUICK = [
   { range: 'today' as const, label: '📅 Hôm nay', icon: CalendarDays },
@@ -46,6 +47,43 @@ function whenText(e: WpEvent): string {
   if (!e.start_at) return 'Chưa đặt giờ';
   const t = fmtT(e.start_at);
   return t === '00:00' ? fmtD(e.start_at) : `${fmtD(e.start_at)} · ${t}`;
+}
+
+function Tile({ label, value, cls }: { label: string; value: number; cls: string }) {
+  return (
+    <div className={`rounded-xl px-2 py-2.5 text-center ${cls}`}>
+      <div className="text-2xl font-black leading-none">{value}</div>
+      <div className="text-[11px] font-semibold opacity-80 mt-1">{label}</div>
+    </div>
+  );
+}
+
+function StatsCard({ s }: { s: WpStats }) {
+  const trend = s.trend === 'more'
+    ? { t: 'bận hơn ▲', c: 'text-red-600' }
+    : s.trend === 'less'
+      ? { t: 'ít hơn ▼', c: 'text-emerald-600' }
+      : { t: 'tương đương', c: 'text-gray-500' };
+  return (
+    <div className="rounded-2xl border bg-white shadow-sm p-4 max-w-md">
+      <div className="flex items-center gap-2 font-black text-gray-800 mb-3">
+        <BarChart3 size={18} className="text-sky-600" /> Tổng hợp {s.label}
+      </div>
+      <div className="grid grid-cols-3 gap-2">
+        <Tile label="Tổng việc" value={s.total} cls="bg-sky-50 text-sky-700" />
+        <Tile label="Đã xong" value={s.done} cls="bg-emerald-50 text-emerald-700" />
+        <Tile label="Còn lại" value={s.active} cls="bg-amber-50 text-amber-700" />
+      </div>
+      <div className="grid grid-cols-3 gap-2 mt-2">
+        <Tile label="Quá hạn" value={s.overdue} cls="bg-red-50 text-red-700" />
+        <Tile label="Sự kiện" value={s.events} cls="bg-gray-100 text-gray-700" />
+        <Tile label="Việc" value={s.tasks} cls="bg-gray-100 text-gray-700" />
+      </div>
+      <div className="mt-3 text-sm text-gray-600">
+        So tháng trước ({s.prevTotal} việc): <b className={trend.c}>{trend.t}</b>
+      </div>
+    </div>
+  );
 }
 
 function EventCard({ e, onMutate }: { e: WpEvent; onMutate: (id: string, op: string) => void }) {
@@ -142,6 +180,23 @@ export default function WorkPage() {
     finally { setLoading(false); }
   }
 
+  async function quickStats() {
+    if (loading || !user) return;
+    setErrMsg('');
+    setBlocks(b => [...b, { kind: 'label', text: '📊 Tổng hợp tháng này' }]);
+    setLoading(true);
+    try {
+      const res = await fetch('/api/work/stats', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ownerId: user.id }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) { showError(res, data); return; }
+      if (data.stats) setBlocks(b => [...b, { kind: 'stats', stats: data.stats }]);
+    } catch { setErrMsg('Có lỗi mạng, thử lại nhé.'); }
+    finally { setLoading(false); }
+  }
+
   async function send(text?: string) {
     const q = (text ?? input).trim();
     if (!q || loading || !user) return;
@@ -163,6 +218,7 @@ export default function WorkPage() {
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.answer) { showError(res, data); return; }
       const add: Block[] = [{ kind: 'ai', text: data.answer }];
+      if (data.stats) add.push({ kind: 'stats', stats: data.stats });
       if (Array.isArray(data.events) && data.events.length) add.push({ kind: 'cards', events: data.events });
       setBlocks(b => [...b, ...add]);
     } catch { setErrMsg('Có lỗi mạng, thử lại nhé.'); }
@@ -209,6 +265,10 @@ export default function WorkPage() {
             <q.icon size={15} /> {q.label.replace(/^\S+\s/, '')}
           </button>
         ))}
+        <button onClick={quickStats} disabled={loading}
+          className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-indigo-50 border border-indigo-200 text-indigo-700 text-sm font-semibold hover:bg-indigo-100 disabled:opacity-50">
+          <BarChart3 size={15} /> Tổng hợp
+        </button>
       </div>
 
       <div className="flex-1 flex min-h-0">
@@ -221,6 +281,10 @@ export default function WorkPage() {
               <q.icon size={18} /> <span>{q.label.replace(/^\S+\s/, '')}</span>
             </button>
           ))}
+          <button onClick={quickStats} disabled={loading}
+            className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl bg-indigo-50 border border-indigo-100 text-indigo-700 font-semibold hover:bg-indigo-100 hover:border-indigo-200 transition disabled:opacity-50 text-left mt-1">
+            <BarChart3 size={18} /> <span>Tổng hợp tháng</span>
+          </button>
         </aside>
 
         {/* Cột chat + card */}
@@ -259,6 +323,7 @@ export default function WorkPage() {
                   <div className="max-w-[85%] px-4 py-2.5 rounded-2xl rounded-bl-md text-sm leading-relaxed whitespace-pre-wrap bg-white text-gray-800 border border-sky-100 shadow-sm">{b.text}</div>
                 </div>
               );
+              if (b.kind === 'stats') return <div key={i}><StatsCard s={b.stats} /></div>;
               // cards
               return (
                 <div key={i} className="grid gap-2.5 sm:grid-cols-2">
