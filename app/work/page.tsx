@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import { CalendarClock, Loader2, Send, Check, Trash2, RotateCcw, CalendarDays, CalendarRange, Calendar, BarChart3 } from 'lucide-react';
+import { CalendarClock, Loader2, Send, Check, Trash2, RotateCcw, CalendarDays, CalendarRange, Calendar, BarChart3, Pencil } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { deriveState, type WpEvent, type WpState, type WpStats } from '@/lib/work';
 
@@ -48,6 +48,21 @@ function whenText(e: WpEvent): string {
   const t = fmtT(e.start_at);
   return t === '00:00' ? fmtD(e.start_at) : `${fmtD(e.start_at)} · ${t}`;
 }
+// ISO → 'YYYY-MM-DDTHH:mm' theo giờ VN (đổ vào input datetime-local)
+function toDatetimeLocal(iso: string): string {
+  const s = new Date(iso).toLocaleString('sv-SE', { timeZone: 'Asia/Ho_Chi_Minh' }); // 'YYYY-MM-DD HH:mm:ss'
+  return s.slice(0, 16).replace(' ', 'T');
+}
+function formFromEvent(e: WpEvent) {
+  return {
+    title: e.title,
+    type: e.type,
+    dt: e.start_at ? toDatetimeLocal(e.start_at) : '',
+    due: e.due_date || '',
+    location: e.location || '',
+    note: e.note || '',
+  };
+}
 
 function Tile({ label, value, cls }: { label: string; value: number; cls: string }) {
   return (
@@ -86,10 +101,58 @@ function StatsCard({ s }: { s: WpStats }) {
   );
 }
 
-function EventCard({ e, onMutate }: { e: WpEvent; onMutate: (id: string, op: string) => void }) {
+function EventCard({ e, onMutate, onEdit }: {
+  e: WpEvent;
+  onMutate: (id: string, op: string) => void;
+  onEdit: (id: string, patch: any) => Promise<void>;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [f, setF] = useState(() => formFromEvent(e));
   const st = deriveState(e);
   const b = BADGE[st];
   const done = e.status === 'done';
+  const inp = 'w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-sky-300 bg-gray-50';
+
+  async function save() {
+    if (!f.title.trim()) return;
+    setSaving(true);
+    const patch: any = { title: f.title.trim(), location: f.location.trim() || null, note: f.note.trim() || null, type: f.type };
+    if (f.type === 'event') { patch.start_at = f.dt ? f.dt + ':00+07:00' : null; patch.due_date = null; }
+    else { patch.due_date = f.due || null; patch.start_at = null; }
+    await onEdit(e.id, patch);
+    setSaving(false);
+    setEditing(false);
+  }
+
+  if (editing) {
+    return (
+      <div className="rounded-2xl border-2 border-sky-300 bg-white shadow-sm px-3.5 py-3 space-y-2">
+        <div className="text-xs font-bold text-sky-600">✏️ Sửa công việc</div>
+        <input className={inp} value={f.title} onChange={ev => setF({ ...f, title: ev.target.value })} placeholder="Tên việc/sự kiện" />
+        <div className="flex gap-2 items-center">
+          <select className={inp + ' flex-1'} value={f.type} onChange={ev => setF({ ...f, type: ev.target.value as 'event' | 'task' })}>
+            <option value="event">Sự kiện (có giờ)</option>
+            <option value="task">Việc (có hạn)</option>
+          </select>
+          {f.type === 'event'
+            ? <input type="datetime-local" className={inp + ' flex-1'} value={f.dt} onChange={ev => setF({ ...f, dt: ev.target.value })} />
+            : <input type="date" className={inp + ' flex-1'} value={f.due} onChange={ev => setF({ ...f, due: ev.target.value })} />}
+        </div>
+        <input className={inp} value={f.location} onChange={ev => setF({ ...f, location: ev.target.value })} placeholder="Địa điểm (nếu có)" />
+        <textarea className={inp + ' resize-none'} rows={2} value={f.note} onChange={ev => setF({ ...f, note: ev.target.value })} placeholder="Cần chuẩn bị / ghi chú" />
+        <div className="flex gap-2 pt-1">
+          <button onClick={save} disabled={saving || !f.title.trim()}
+            className="flex items-center gap-1 text-xs font-bold text-white bg-sky-600 hover:bg-sky-700 px-3 py-1.5 rounded-lg disabled:opacity-50">
+            {saving ? <Loader2 size={13} className="animate-spin" /> : <Check size={14} />} Lưu
+          </button>
+          <button onClick={() => setEditing(false)}
+            className="text-xs font-semibold text-gray-600 hover:text-gray-800 px-3 py-1.5 rounded-lg hover:bg-gray-100">Hủy</button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className={`rounded-2xl border bg-white shadow-sm px-3.5 py-3 ${done ? 'opacity-70' : ''}`}>
       <div className="flex items-center justify-between mb-1">
@@ -100,7 +163,7 @@ function EventCard({ e, onMutate }: { e: WpEvent; onMutate: (id: string, op: str
       <div className="mt-1 text-sm text-gray-600 flex items-center gap-1.5">🕗 {whenText(e)}</div>
       {e.location && <div className="text-sm text-gray-600 flex items-center gap-1.5">📍 {e.location}</div>}
       {e.note && <div className="text-sm text-gray-600 flex items-start gap-1.5">📎 <span>{e.note}</span></div>}
-      <div className="flex gap-2 mt-2.5 pt-2 border-t border-gray-100">
+      <div className="flex gap-1 mt-2.5 pt-2 border-t border-gray-100">
         {done ? (
           <button onClick={() => onMutate(e.id, 'active')}
             className="flex items-center gap-1 text-xs font-semibold text-gray-600 hover:text-gray-800 px-2.5 py-1 rounded-lg hover:bg-gray-100">
@@ -112,6 +175,10 @@ function EventCard({ e, onMutate }: { e: WpEvent; onMutate: (id: string, op: str
             <Check size={14} /> Xong
           </button>
         )}
+        <button onClick={() => { setF(formFromEvent(e)); setEditing(true); }}
+          className="flex items-center gap-1 text-xs font-semibold text-sky-600 hover:text-sky-700 px-2.5 py-1 rounded-lg hover:bg-sky-50">
+          <Pencil size={13} /> Sửa
+        </button>
         <button onClick={() => onMutate(e.id, 'delete')}
           className="flex items-center gap-1 text-xs font-semibold text-red-500 hover:text-red-600 px-2.5 py-1 rounded-lg hover:bg-red-50">
           <Trash2 size={13} /> Xóa
@@ -242,6 +309,21 @@ export default function WorkPage() {
     } catch { setErrMsg('Có lỗi mạng, thử lại nhé.'); }
   }
 
+  async function editEvent(id: string, patch: any) {
+    if (!user) return;
+    try {
+      const res = await fetch('/api/work/mutate', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ownerId: user.id, id, op: 'edit', ...patch }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.ok) { setErrMsg('Không sửa được, thử lại.'); return; }
+      setBlocks(bs => bs.map(b => b.kind === 'cards'
+        ? { ...b, events: b.events.map(e => (e.id === id && data.event ? data.event : e)) }
+        : b));
+    } catch { setErrMsg('Có lỗi mạng, thử lại nhé.'); }
+  }
+
   const isEmpty = blocks.every(b => b.kind === 'label' || b.kind === 'empty');
 
   return (
@@ -327,7 +409,7 @@ export default function WorkPage() {
               // cards
               return (
                 <div key={i} className="grid gap-2.5 sm:grid-cols-2">
-                  {b.events.map(e => <EventCard key={e.id} e={e} onMutate={mutate} />)}
+                  {b.events.map(e => <EventCard key={e.id} e={e} onMutate={mutate} onEdit={editEvent} />)}
                 </div>
               );
             })}

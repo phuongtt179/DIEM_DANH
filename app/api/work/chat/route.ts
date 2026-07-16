@@ -89,10 +89,13 @@ async function toolUpdateEvent(ownerId: string, args: any) {
   const patch: any = { updated_at: now };
   if (op === 'done') patch.status = 'done';
   else if (op === 'cancel') patch.status = 'canceled';
-  else if (op === 'reschedule') {
+  else if (op === 'reschedule' || op === 'edit') {
+    if (args?.new_title && String(args.new_title).trim()) patch.title = String(args.new_title).trim();
+    if (args?.new_location !== undefined) patch.location = args.new_location || null;
+    if (args?.new_note !== undefined) patch.note = args.new_note || null;
     if (args?.new_start_at) { patch.start_at = args.new_start_at; patch.type = 'event'; }
     if (args?.new_due_date) { patch.due_date = args.new_due_date; patch.type = 'task'; }
-    if (!args?.new_start_at && !args?.new_due_date) return { ok: false, error: 'thiếu thời gian mới' };
+    if (Object.keys(patch).length <= 1) return { ok: false, error: 'không có gì để sửa' };
   } else return { ok: false, error: 'op không hợp lệ' };
 
   const { data, error } = await supabase.from('wp_events')
@@ -160,14 +163,17 @@ const TOOLS = [{
     },
     {
       name: 'update_event',
-      description: 'Cập nhật 1 công việc theo id (lấy từ find_events). op: done (đánh dấu xong), cancel (hủy), delete (xóa hẳn), reschedule (dời — kèm new_start_at hoặc new_due_date).',
+      description: 'Cập nhật 1 công việc theo id (lấy từ find_events). op: done (đánh dấu xong), cancel (hủy), delete (xóa hẳn), edit (sửa chi tiết — kèm bất kỳ new_title/new_location/new_note/new_start_at/new_due_date nào cần đổi). reschedule = edit chỉ đổi thời gian.',
       parameters: {
         type: 'object',
         properties: {
           id: { type: 'string', description: 'id công việc (từ find_events)' },
-          op: { type: 'string', enum: ['done', 'cancel', 'delete', 'reschedule'] },
-          new_start_at: { type: 'string', description: 'Thời điểm mới "YYYY-MM-DDTHH:mm:00+07:00" (khi reschedule sự kiện)' },
-          new_due_date: { type: 'string', description: 'Hạn mới "YYYY-MM-DD" (khi reschedule việc)' },
+          op: { type: 'string', enum: ['done', 'cancel', 'delete', 'edit', 'reschedule'] },
+          new_title: { type: 'string', description: 'Tên mới (khi edit)' },
+          new_location: { type: 'string', description: 'Địa điểm mới (khi edit)' },
+          new_note: { type: 'string', description: 'Ghi chú/cần chuẩn bị mới (khi edit)' },
+          new_start_at: { type: 'string', description: 'Thời điểm mới "YYYY-MM-DDTHH:mm:00+07:00" (sự kiện)' },
+          new_due_date: { type: 'string', description: 'Hạn mới "YYYY-MM-DD" (việc)' },
         },
         required: ['id', 'op'],
       },
@@ -193,7 +199,7 @@ BẠN LÀM ĐƯỢC:
 - THÊM VIỆC: người dùng gõ tự nhiên ("họp phụ huynh 8h thứ 6", "nhắc nộp báo cáo trước 25/7") HOẶC dán nguyên GIẤY MỜI / TIN ZALO. Bạn tự bóc tách rồi gọi add_event.
 - TRA CỨU: "hôm nay/tuần này/tháng này có gì", "việc nào chưa xong", "có việc gì quá hạn", "ngày mai cần chuẩn bị gì" → gọi list_events.
 - TỔNG HỢP/THỐNG KÊ: "tổng hợp tháng", "tháng này bao nhiêu việc", "đã xong bao nhiêu / còn tồn", "bận hơn tháng trước không" → gọi get_stats (ứng dụng sẽ hiện THẺ TỔNG HỢP; bạn chỉ cần trả 1 câu ngắn như "Tổng hợp tháng 7 👇").
-- SỬA/HỦY/XÓA/DỜI: gọi find_events lấy id rồi update_event.
+- SỬA/HỦY/XÓA/DỜI: gọi find_events lấy id rồi update_event. Sửa chi tiết ("đổi địa điểm thành...", "đổi tên...", "thêm ghi chú mang laptop", "dời sang 15h mai") → op=edit kèm các trường new_* cần đổi. Nếu tìm ra nhiều việc trùng thì hỏi chọn.
 
 BÓC TÁCH GIẤY MỜI (rất quan trọng):
 - title = tóm tắt nội dung (thường sau "V/v" hoặc tên hội nghị).
