@@ -7,7 +7,7 @@ export interface User {
   id: string;
   email: string;
   name: string;
-  role: 'admin' | 'teacher' | 'treasurer';
+  role: 'admin' | 'teacher' | 'treasurer' | 'planner';
 }
 
 interface AuthContextType {
@@ -33,6 +33,7 @@ const rolePermissions: { [role: string]: string[] } = {
     'manage_users',
     'manage_assistants',
     'use_ai_chat',
+    'use_work',
   ],
   teacher: [
     'view_dashboard',
@@ -45,6 +46,10 @@ const rolePermissions: { [role: string]: string[] } = {
     'view_attendance',
     'view_statistics',
     'manage_payments',
+  ],
+  // Tài khoản chỉ dùng Trợ lý nhắc việc (không thấy phần lớp học)
+  planner: [
+    'use_work',
   ],
 };
 

@@ -7,7 +7,7 @@ import Sidebar from '@/components/Sidebar';
 import ChatWidget from '@/components/ChatWidget';
 
 function LayoutContent({ children }: { children: React.ReactNode }) {
-  const { user, loading } = useAuth();
+  const { user, loading, hasPermission } = useAuth();
   const pathname = usePathname();
   const router = useRouter();
 
@@ -16,6 +16,14 @@ function LayoutContent({ children }: { children: React.ReactNode }) {
       router.push('/login');
     }
   }, [user, loading, pathname, router]);
+
+  // Tài khoản chỉ dùng Nhắc việc (planner): vào '/' thì chuyển thẳng sang /work
+  useEffect(() => {
+    if (loading || !user) return;
+    if (pathname === '/' && hasPermission('use_work') && !hasPermission('view_dashboard')) {
+      router.replace('/work');
+    }
+  }, [loading, user, pathname, hasPermission, router]);
 
   // Khi MỞ app trên điện thoại: vào thẳng khung chat (chỉ 1 lần mỗi phiên mở app).
   // Sau đó vẫn vào Dashboard/các trang khác qua menu bình thường.

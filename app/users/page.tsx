@@ -10,7 +10,7 @@ interface AppUser {
   id: string;
   email: string;
   name: string;
-  role: 'admin' | 'teacher' | 'treasurer';
+  role: 'admin' | 'teacher' | 'treasurer' | 'planner';
   created_at: string;
 }
 
@@ -28,12 +28,14 @@ const roleLabels: { [key: string]: string } = {
   admin: 'Quản trị viên',
   teacher: 'Giáo viên',
   treasurer: 'Thủ quỹ',
+  planner: 'Nhắc việc',
 };
 
 const roleColors: { [key: string]: string } = {
   admin: 'bg-purple-100 text-purple-700',
   teacher: 'bg-blue-100 text-blue-700',
   treasurer: 'bg-green-100 text-green-700',
+  planner: 'bg-sky-100 text-sky-700',
 };
 
 export default function UsersPage() {
@@ -50,7 +52,7 @@ export default function UsersPage() {
   const [form, setForm] = useState({
     email: '',
     name: '',
-    role: 'teacher' as 'admin' | 'teacher' | 'treasurer',
+    role: 'teacher' as 'admin' | 'teacher' | 'treasurer' | 'planner',
     password: '',
   });
 
@@ -436,17 +438,19 @@ export default function UsersPage() {
                 </label>
                 <select
                   value={form.role}
-                  onChange={(e) => setForm({ ...form, role: e.target.value as 'admin' | 'teacher' | 'treasurer' })}
+                  onChange={(e) => setForm({ ...form, role: e.target.value as 'admin' | 'teacher' | 'treasurer' | 'planner' })}
                   className="w-full px-3 lg:px-4 py-2 border-2 border-gray-300 rounded-lg focus:border-blue-500 focus:outline-none text-sm lg:text-base"
                 >
                   <option value="teacher">Giáo viên</option>
                   <option value="treasurer">Thủ quỹ</option>
                   <option value="admin">Quản trị viên</option>
+                  <option value="planner">Nhắc việc (trợ lý riêng)</option>
                 </select>
                 <p className="text-xs text-gray-500 mt-1">
                   {form.role === 'admin' && 'Toàn quyền quản lý hệ thống'}
                   {form.role === 'teacher' && 'Điểm danh và xem thống kê lớp được phân công'}
                   {form.role === 'treasurer' && 'Xem điểm danh, thống kê và quản lý học phí'}
+                  {form.role === 'planner' && 'Chỉ dùng Trợ lý nhắc việc — không thấy phần lớp học'}
                 </p>
               </div>
 

@@ -32,7 +32,7 @@ export default function ChatWidget() {
 
   // Chỉ Admin mới thấy trợ lý; ẩn ở trang Nhật ký và Trợ lý AI (đã có khung chat riêng, tránh nhầm)
   if (!user || user.role !== 'admin') return null;
-  if (pathname === '/journal' || pathname === '/chat') return null;
+  if (pathname === '/journal' || pathname === '/chat' || pathname === '/work') return null;
 
   function autoGrow(el: HTMLTextAreaElement) {
     el.style.height = 'auto';

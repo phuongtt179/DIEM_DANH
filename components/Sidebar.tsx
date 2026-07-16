@@ -18,7 +18,8 @@ import {
   User,
   GraduationCap,
   Bot,
-  NotebookPen
+  NotebookPen,
+  CalendarClock
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 
@@ -32,6 +33,7 @@ const allNavItems = [
   { href: '/assistants', icon: GraduationCap, label: 'Trợ giảng', permission: 'manage_assistants' },
   { href: '/chat', icon: Bot, label: 'Trợ lý AI', permission: 'use_ai_chat' },
   { href: '/journal', icon: NotebookPen, label: 'Nhật ký', permission: 'use_ai_chat' },
+  { href: '/work', icon: CalendarClock, label: 'Nhắc việc', permission: 'use_work' },
   { href: '/users', icon: UserCog, label: 'Người dùng', permission: 'manage_users' },
 ];
 
@@ -39,6 +41,7 @@ const roleLabels: { [key: string]: string } = {
   admin: 'Quản trị viên',
   teacher: 'Giáo viên',
   treasurer: 'Thủ quỹ',
+  planner: 'Nhắc việc',
 };
 
 export default function Sidebar() {
