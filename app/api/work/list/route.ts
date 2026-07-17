@@ -26,10 +26,11 @@ export async function POST(req: Request) {
 
   const all = (data || []) as WpEvent[];
   const events = all.filter(e => {
+    if (e.status !== 'active') return false;      // chỉ hiện việc CHƯA LÀM
     const wd = eventDateVN(e);
     const inRange = wd >= start && wd <= end;
-    const overdueActive = e.status === 'active' && wd < today; // việc dang dở quá hạn
-    return inRange || overdueActive;
+    const overdue = wd < today;                   // việc dang dở đã quá hạn — luôn hiện
+    return inRange || overdue;
   }).sort(sortEvents);
 
   return Response.json({ label, range: { start, end }, events });

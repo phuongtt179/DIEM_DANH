@@ -6,13 +6,14 @@ import { CalendarClock, Loader2, Send, Check, Trash2, RotateCcw, CalendarDays, C
 import { useAuth } from '@/contexts/AuthContext';
 import { deriveState, type WpEvent, type WpState, type WpStats } from '@/lib/work';
 
+// src:'quick' = kết quả từ 3 nút/Tổng hợp (chỉ giữ MỘT lần, bấm lại thì thay thế)
 type Block =
-  | { kind: 'user'; text: string }
-  | { kind: 'ai'; text: string }
-  | { kind: 'label'; text: string }
-  | { kind: 'empty'; text: string }
-  | { kind: 'cards'; events: WpEvent[] }
-  | { kind: 'stats'; stats: WpStats };
+  | { kind: 'user'; text: string; src?: 'quick' }
+  | { kind: 'ai'; text: string; src?: 'quick' }
+  | { kind: 'label'; text: string; src?: 'quick' }
+  | { kind: 'empty'; text: string; src?: 'quick' }
+  | { kind: 'cards'; events: WpEvent[]; src?: 'quick' }
+  | { kind: 'stats'; stats: WpStats; src?: 'quick' };
 
 const QUICK = [
   { range: 'today' as const, label: '📅 Hôm nay', icon: CalendarDays },
@@ -228,11 +229,15 @@ export default function WorkPage() {
     }
   }
 
+  // Xóa các block "quick" cũ rồi thêm block mới → bấm nhiều lần không bị chồng
+  function replaceQuick(...fresh: Block[]) {
+    setBlocks(b => [...b.filter(x => x.src !== 'quick'), ...fresh]);
+  }
+
   async function quickView(range: 'today' | 'week' | 'month') {
     if (loading || !user) return;
     setErrMsg('');
     const label = QUICK.find(q => q.range === range)!.label;
-    setBlocks(b => [...b, { kind: 'label', text: label }]);
     setLoading(true);
     try {
       const res = await fetch('/api/work/list', {
@@ -242,7 +247,10 @@ export default function WorkPage() {
       const data = await res.json().catch(() => ({}));
       if (!res.ok) { showError(res, data); return; }
       const events: WpEvent[] = data.events || [];
-      setBlocks(b => [...b, events.length ? { kind: 'cards', events } : { kind: 'empty', text: 'Không có việc nào.' }]);
+      replaceQuick(
+        { kind: 'label', text: label, src: 'quick' },
+        events.length ? { kind: 'cards', events, src: 'quick' } : { kind: 'empty', text: 'Không có việc nào chưa làm.', src: 'quick' },
+      );
     } catch { setErrMsg('Có lỗi mạng, thử lại nhé.'); }
     finally { setLoading(false); }
   }
@@ -250,7 +258,6 @@ export default function WorkPage() {
   async function quickStats() {
     if (loading || !user) return;
     setErrMsg('');
-    setBlocks(b => [...b, { kind: 'label', text: '📊 Tổng hợp tháng này' }]);
     setLoading(true);
     try {
       const res = await fetch('/api/work/stats', {
@@ -259,7 +266,7 @@ export default function WorkPage() {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) { showError(res, data); return; }
-      if (data.stats) setBlocks(b => [...b, { kind: 'stats', stats: data.stats }]);
+      if (data.stats) replaceQuick({ kind: 'label', text: '📊 Tổng hợp tháng này', src: 'quick' }, { kind: 'stats', stats: data.stats, src: 'quick' });
     } catch { setErrMsg('Có lỗi mạng, thử lại nhé.'); }
     finally { setLoading(false); }
   }
@@ -301,8 +308,10 @@ export default function WorkPage() {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.ok) { setErrMsg('Không cập nhật được, thử lại.'); return; }
+      // Xong / Hủy / Xóa → bỏ khỏi danh sách (chỉ hiện việc chưa làm). Mở lại / sửa → cập nhật tại chỗ.
+      const remove = op === 'delete' || op === 'done' || op === 'cancel';
       setBlocks(bs => bs.map(b => b.kind === 'cards'
-        ? { ...b, events: op === 'delete'
+        ? { ...b, events: remove
             ? b.events.filter(e => e.id !== id)
             : b.events.map(e => (e.id === id && data.event ? data.event : e)) }
         : b));
@@ -324,7 +333,7 @@ export default function WorkPage() {
     } catch { setErrMsg('Có lỗi mạng, thử lại nhé.'); }
   }
 
-  const isEmpty = blocks.every(b => b.kind === 'label' || b.kind === 'empty');
+  const isEmpty = blocks.length === 0;
 
   return (
     <div className="flex flex-col h-[100dvh] bg-gray-50">
