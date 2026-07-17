@@ -725,7 +725,7 @@ async function toolMarkAssistantTaught(args: { assistant_id: string; class_ids: 
       .eq('assistant_id', args.assistant_id).eq('class_id', cid).eq('date', date).maybeSingle();
     if (ex) continue; // đã điểm danh
     const { error } = await supabase.from('assistant_sessions')
-      .insert({ assistant_id: args.assistant_id, class_id: cid, date, sessions_count: 1, note: '' });
+      .insert({ assistant_id: args.assistant_id, class_id: cid, date, sessions_count: 1, status: 'present', note: '' });
     if (error) werr = error;
     else {
       const { data: c } = await supabase.from('classes').select('name').eq('id', cid).maybeSingle();

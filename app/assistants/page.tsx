@@ -20,13 +20,10 @@ interface ClassItem {
   subject: string;
 }
 
-interface SessionInput {
-  class_id: string;
-  class_name: string;
-  sessions_count: number;
-  existing_id: string | null;
-  note: string;
-}
+// Lưới điểm danh theo tháng: grid[class_id][day] = { status, id }
+type CellStatus = 'present' | 'absent';
+interface GridCell { status: CellStatus; id: string | null; }
+type AttGrid = Record<string, Record<number, GridCell>>;
 
 interface StatRow {
   assistant_id: string;
@@ -62,11 +59,14 @@ export default function AssistantsPage() {
   const [assignedClassIds, setAssignedClassIds] = useState<string[]>([]);
   const [assistantClassMap, setAssistantClassMap] = useState<Record<string, string[]>>({});
 
-  // Attendance tab state
-  const [attDate, setAttDate] = useState(format(new Date(), 'yyyy-MM-dd'));
+  // Attendance tab state (lưới theo tháng)
+  const [attMonth, setAttMonth] = useState(format(new Date(), 'yyyy-MM'));
   const [attAssistantId, setAttAssistantId] = useState('');
-  const [sessionInputs, setSessionInputs] = useState<SessionInput[]>([]);
-  const [saving, setSaving] = useState(false);
+  const [grid, setGrid] = useState<AttGrid>({});
+  const [gridDraft, setGridDraft] = useState<AttGrid>({});
+  const [gridEdit, setGridEdit] = useState(false);
+  const [savingGrid, setSavingGrid] = useState(false);
+  const [loadingGrid, setLoadingGrid] = useState(false);
 
   // Stats tab state
   const [statsMonth, setStatsMonth] = useState(format(new Date(), 'yyyy-MM'));
@@ -94,8 +94,10 @@ export default function AssistantsPage() {
   }, [tab, statsMonth]);
 
   useEffect(() => {
-    if (attAssistantId && attDate) loadSessionInputs();
-  }, [attAssistantId, attDate]);
+    setGridEdit(false);
+    if (attAssistantId && attMonth) loadGrid();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [attAssistantId, attMonth, assistantClassMap]);
 
   async function loadData() {
     setLoading(true);
@@ -121,63 +123,84 @@ export default function AssistantsPage() {
     }
   }
 
-  async function loadSessionInputs() {
+  async function loadGrid() {
     const classIds = assistantClassMap[attAssistantId] || [];
-    if (classIds.length === 0) {
-      setSessionInputs([]);
-      return;
+    if (classIds.length === 0) { setGrid({}); setGridDraft({}); return; }
+    setLoadingGrid(true);
+    try {
+      const [y, mo] = attMonth.split('-').map(Number);
+      const last = new Date(y, mo, 0).getDate();
+      const start = `${attMonth}-01`;
+      const end = `${attMonth}-${String(last).padStart(2, '0')}`;
+      const { data } = await supabase
+        .from('assistant_sessions')
+        .select('id, class_id, date, status, sessions_count')
+        .eq('assistant_id', attAssistantId)
+        .gte('date', start).lte('date', end)
+        .in('class_id', classIds);
+
+      const g: AttGrid = {};
+      classIds.forEach(cid => { g[cid] = {}; });
+      (data || []).forEach((r: any) => {
+        const day = parseInt(String(r.date).slice(8, 10));
+        const status: CellStatus = r.status ? r.status : (r.sessions_count > 0 ? 'present' : 'absent');
+        if (!g[r.class_id]) g[r.class_id] = {};
+        g[r.class_id][day] = { status, id: r.id };
+      });
+      setGrid(g);
+      setGridDraft(JSON.parse(JSON.stringify(g)));
+    } finally {
+      setLoadingGrid(false);
     }
-
-    const { data: existing } = await supabase
-      .from('assistant_sessions')
-      .select('*')
-      .eq('assistant_id', attAssistantId)
-      .eq('date', attDate)
-      .in('class_id', classIds);
-
-    const inputs: SessionInput[] = classIds.map(cid => {
-      const cls = classes.find(c => c.id === cid);
-      const rec = (existing || []).find((r: any) => r.class_id === cid);
-      return {
-        class_id: cid,
-        class_name: cls ? `${cls.name} (${cls.subject})` : cid,
-        sessions_count: rec ? rec.sessions_count : 0,
-        existing_id: rec ? rec.id : null,
-        note: rec ? (rec.note || '') : '',
-      };
-    });
-    setSessionInputs(inputs);
   }
 
-  async function saveAttendance() {
-    setSaving(true);
+  // Bấm ô (khi đang chỉnh sửa): trống → ✓ đi dạy → ✗ vắng → trống
+  function toggleCell(cid: string, day: number) {
+    if (!gridEdit) return;
+    setGridDraft(prev => {
+      const g: AttGrid = { ...prev, [cid]: { ...(prev[cid] || {}) } };
+      const cur = g[cid][day];
+      if (!cur) g[cid][day] = { status: 'present', id: null };
+      else if (cur.status === 'present') g[cid][day] = { status: 'absent', id: cur.id };
+      else delete g[cid][day];
+      return g;
+    });
+  }
+
+  async function saveGrid() {
+    setSavingGrid(true);
     try {
-      for (const inp of sessionInputs) {
-        if (inp.sessions_count === 0) {
-          if (inp.existing_id) {
-            await supabase.from('assistant_sessions').delete().eq('id', inp.existing_id);
+      const classIds = assistantClassMap[attAssistantId] || [];
+      const ops: Promise<any>[] = [];
+      for (const cid of classIds) {
+        const orig = grid[cid] || {};
+        const draft = gridDraft[cid] || {};
+        const days = new Set<number>([...Object.keys(orig), ...Object.keys(draft)].map(Number));
+        for (const day of days) {
+          const o = orig[day];
+          const d = draft[day];
+          const date = `${attMonth}-${String(day).padStart(2, '0')}`;
+          if (!d && o) {
+            ops.push(Promise.resolve(supabase.from('assistant_sessions').delete().eq('id', o.id)));
+          } else if (d && !o) {
+            ops.push(Promise.resolve(supabase.from('assistant_sessions').insert({
+              assistant_id: attAssistantId, class_id: cid, date,
+              status: d.status, sessions_count: d.status === 'present' ? 1 : 0, note: null,
+            })));
+          } else if (d && o && d.status !== o.status && o.id) {
+            ops.push(Promise.resolve(supabase.from('assistant_sessions').update({
+              status: d.status, sessions_count: d.status === 'present' ? 1 : 0,
+            }).eq('id', o.id)));
           }
-        } else if (inp.existing_id) {
-          await supabase.from('assistant_sessions').update({
-            sessions_count: inp.sessions_count,
-            note: inp.note || null,
-          }).eq('id', inp.existing_id);
-        } else {
-          await supabase.from('assistant_sessions').insert({
-            assistant_id: attAssistantId,
-            class_id: inp.class_id,
-            date: attDate,
-            sessions_count: inp.sessions_count,
-            note: inp.note || null,
-          });
         }
       }
-      alert('Đã lưu điểm danh trợ giảng!');
-      loadSessionInputs();
-    } catch (e) {
-      alert('Lỗi khi lưu');
+      await Promise.all(ops);
+      setGridEdit(false);
+      await loadGrid();
+    } catch {
+      alert('Lỗi khi lưu điểm danh');
     } finally {
-      setSaving(false);
+      setSavingGrid(false);
     }
   }
 
@@ -420,86 +443,124 @@ export default function AssistantsPage() {
         </div>
       )}
 
-      {/* ====== TAB: ĐIỂM DANH ====== */}
-      {tab === 'attendance' && (
-        <div className="bg-white rounded-xl shadow p-4 lg:p-6">
-          <div className="flex flex-col lg:flex-row gap-4 mb-6">
-            <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-1">Trợ giảng</label>
-              <select
-                value={attAssistantId}
-                onChange={e => setAttAssistantId(e.target.value)}
-                className="px-3 py-2 border-2 border-gray-300 rounded-lg focus:border-blue-500 focus:outline-none text-sm"
-              >
-                <option value="">-- Chọn trợ giảng --</option>
-                {assistants.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-1">Ngày dạy</label>
-              <input
-                type="date"
-                value={attDate}
-                onChange={e => setAttDate(e.target.value)}
-                className="px-3 py-2 border-2 border-gray-300 rounded-lg focus:border-blue-500 focus:outline-none text-sm"
-              />
-            </div>
-          </div>
+      {/* ====== TAB: ĐIỂM DANH (lưới theo tháng) ====== */}
+      {tab === 'attendance' && (() => {
+        const gridClasses = (assistantClassMap[attAssistantId] || [])
+          .map(cid => ({ id: cid, name: classes.find(c => c.id === cid)?.name || cid }))
+          .sort((a, b) => a.name.localeCompare(b.name));
+        const [gy, gm] = attMonth.split('-').map(Number);
+        const gLast = new Date(gy, gm, 0).getDate();
+        const gDays = Array.from({ length: gLast }, (_, i) => i + 1);
+        const gDow = (d: number) => new Date(Date.UTC(gy, gm - 1, d)).getUTCDay(); // 0 = CN
+        const WD = ['CN', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7'];
+        const src = gridEdit ? gridDraft : grid;
 
-          {!attAssistantId ? (
-            <p className="text-gray-500 text-center py-8">Chọn trợ giảng để điểm danh</p>
-          ) : sessionInputs.length === 0 ? (
-            <p className="text-gray-500 text-center py-8">{attAssistant?.name} chưa được phân công lớp nào</p>
-          ) : (
-            <>
-              <p className="text-sm font-semibold text-gray-700 mb-3">
-                {attAssistant?.name} — {format(new Date(attDate + 'T00:00:00'), 'dd/MM/yyyy')}
-              </p>
-              <div className="space-y-2">
-                {sessionInputs.map((inp, i) => (
-                  <label key={inp.class_id} className={`flex items-center gap-3 p-3 border-2 rounded-lg cursor-pointer transition-colors ${inp.sessions_count > 0 ? 'border-blue-400 bg-blue-50' : 'border-gray-200 hover:border-gray-300'}`}>
-                    <input
-                      type="checkbox"
-                      checked={inp.sessions_count > 0}
-                      onChange={e => {
-                        const updated = [...sessionInputs];
-                        updated[i] = { ...updated[i], sessions_count: e.target.checked ? 1 : 0 };
-                        setSessionInputs(updated);
-                      }}
-                      className="w-5 h-5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                    />
-                    <span className={`font-semibold text-sm ${inp.sessions_count > 0 ? 'text-blue-700' : 'text-gray-700'}`}>
-                      {inp.class_name}
-                    </span>
-                    {inp.sessions_count > 0 && (
-                    <input
-                      type="text"
-                      value={inp.note}
-                      onClick={e => e.preventDefault()}
-                      onChange={e => {
-                        const updated = [...sessionInputs];
-                        updated[i] = { ...updated[i], note: e.target.value };
-                        setSessionInputs(updated);
-                      }}
-                      placeholder="Ghi chú..."
-                      className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:border-blue-500 focus:outline-none"
-                    />
-                    )}
-                  </label>
-                ))}
+        return (
+          <div className="bg-white rounded-xl shadow p-4 lg:p-6">
+            <div className="flex flex-col lg:flex-row lg:items-end gap-4 mb-4">
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-1">Trợ giảng</label>
+                <select
+                  value={attAssistantId}
+                  onChange={e => setAttAssistantId(e.target.value)}
+                  className="px-3 py-2 border-2 border-gray-300 rounded-lg focus:border-blue-500 focus:outline-none text-sm"
+                >
+                  <option value="">-- Chọn trợ giảng --</option>
+                  {assistants.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                </select>
               </div>
-              <button
-                onClick={saveAttendance}
-                disabled={saving}
-                className="mt-4 flex items-center gap-2 px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-semibold text-sm disabled:opacity-60"
-              >
-                <Save size={18} />
-                {saving ? 'Đang lưu...' : 'Lưu điểm danh'}
-              </button>
-            </>
-          )}
-        </div>
-      )}
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-1">Tháng</label>
+                <input
+                  type="month"
+                  value={attMonth}
+                  onChange={e => setAttMonth(e.target.value)}
+                  className="px-3 py-2 border-2 border-gray-300 rounded-lg focus:border-blue-500 focus:outline-none text-sm"
+                />
+              </div>
+              <div className="flex gap-2 lg:ml-auto">
+                {!gridEdit ? (
+                  <button
+                    onClick={() => { setGridDraft(JSON.parse(JSON.stringify(grid))); setGridEdit(true); }}
+                    disabled={!attAssistantId || gridClasses.length === 0}
+                    className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-semibold hover:bg-blue-700 disabled:opacity-50"
+                  >
+                    <Edit2 size={16} /> Chỉnh sửa
+                  </button>
+                ) : (
+                  <>
+                    <button onClick={saveGrid} disabled={savingGrid}
+                      className="flex items-center gap-1.5 px-4 py-2 bg-green-600 text-white rounded-lg text-sm font-semibold hover:bg-green-700 disabled:opacity-50">
+                      <Save size={16} /> {savingGrid ? 'Đang lưu...' : 'Lưu'}
+                    </button>
+                    <button onClick={() => { setGridDraft(JSON.parse(JSON.stringify(grid))); setGridEdit(false); }}
+                      className="px-4 py-2 border-2 border-gray-300 rounded-lg text-sm font-semibold text-gray-700 hover:bg-gray-50">
+                      Hủy
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+
+            <div className="flex items-center flex-wrap gap-x-4 gap-y-1 text-xs text-gray-600 mb-3">
+              <span className="flex items-center gap-1"><span className="text-green-600 font-bold">✓</span> đi dạy</span>
+              <span className="flex items-center gap-1"><span className="text-red-500 font-bold">✗</span> vắng</span>
+              {gridEdit && <span className="text-blue-600 font-medium">Bấm ô để đổi: trống → ✓ → ✗ → trống</span>}
+            </div>
+
+            {!attAssistantId ? (
+              <p className="text-gray-500 text-center py-8">Chọn trợ giảng để xem bảng điểm danh</p>
+            ) : gridClasses.length === 0 ? (
+              <p className="text-gray-500 text-center py-8">{attAssistant?.name} chưa được phân công lớp nào</p>
+            ) : loadingGrid ? (
+              <div className="flex justify-center py-12"><div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600" /></div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="border-collapse text-sm">
+                  <thead>
+                    <tr>
+                      <th className="sticky left-0 z-10 bg-gray-50 border border-gray-200 px-3 py-1.5 text-left font-bold text-gray-700 min-w-[120px]">Lớp</th>
+                      {gDays.map(d => {
+                        const sun = gDow(d) === 0;
+                        return (
+                          <th key={d} className={`border border-gray-200 px-1 py-1 text-center min-w-[34px] ${sun ? 'bg-red-100 text-red-600' : 'text-gray-600'}`}>
+                            <div className="text-[13px] font-bold leading-none">{d}</div>
+                            <div className="text-[10px] font-medium opacity-70">{WD[gDow(d)]}</div>
+                          </th>
+                        );
+                      })}
+                      <th className="border border-gray-200 px-2 py-1 text-center font-bold text-gray-700 min-w-[46px]">Buổi</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {gridClasses.map(c => {
+                      const row = src[c.id] || {};
+                      const count = Object.values(row).filter(x => x.status === 'present').length;
+                      return (
+                        <tr key={c.id}>
+                          <td className="sticky left-0 z-10 bg-white border border-gray-200 px-3 py-1.5 font-semibold text-gray-800 min-w-[120px]">{c.name}</td>
+                          {gDays.map(d => {
+                            const sun = gDow(d) === 0;
+                            const cell = row[d];
+                            return (
+                              <td key={d} onClick={() => toggleCell(c.id, d)}
+                                className={`border border-gray-200 text-center h-8 select-none ${sun ? 'bg-red-50' : ''} ${gridEdit ? 'cursor-pointer hover:bg-blue-50' : ''}`}>
+                                {cell?.status === 'present' ? <span className="text-green-600 font-bold">✓</span>
+                                  : cell?.status === 'absent' ? <span className="text-red-500 font-bold">✗</span> : ''}
+                              </td>
+                            );
+                          })}
+                          <td className="border border-gray-200 text-center font-bold text-blue-700 bg-blue-50/40">{count}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       {/* ====== TAB: THỐNG KÊ LƯƠNG ====== */}
       {tab === 'stats' && (
