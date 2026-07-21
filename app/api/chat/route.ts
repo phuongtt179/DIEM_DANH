@@ -712,6 +712,32 @@ async function toolAddAssistant(args: { name: string; phone?: string; note?: str
   return { ok: true, ten: na.name, lop_phu_trach: classIds.map(c => c.name) };
 }
 
+// Thêm/bớt lớp phụ trách cho trợ giảng đã có. CHỈ gọi sau xác nhận.
+async function toolAssignAssistantClasses(args: { assistant_id: string; add_classes?: string[]; remove_classes?: string[] }) {
+  if (!args.assistant_id) return { ok: false, error: 'thiếu assistant_id — dùng find_assistant trước' };
+  const added: string[] = [], removed: string[] = [], notfound: string[] = [];
+  for (const cn of (args.add_classes || [])) {
+    const r = await resolveClass(cn);
+    if (!r.one) { notfound.push(cn); continue; }
+    const { data: ex } = await supabase.from('assistant_classes').select('id')
+      .eq('assistant_id', args.assistant_id).eq('class_id', r.one.id).maybeSingle();
+    if (ex) { added.push(`${r.one.name} (đã có sẵn)`); continue; }
+    const { error } = await supabase.from('assistant_classes').insert({ assistant_id: args.assistant_id, class_id: r.one.id });
+    if (error) return { ok: false, error: error.message };
+    added.push(r.one.name);
+  }
+  for (const cn of (args.remove_classes || [])) {
+    const r = await resolveClass(cn);
+    if (!r.one) { notfound.push(cn); continue; }
+    const { error } = await supabase.from('assistant_classes').delete()
+      .eq('assistant_id', args.assistant_id).eq('class_id', r.one.id);
+    if (error) return { ok: false, error: error.message };
+    removed.push(r.one.name);
+  }
+  const { data: a } = await supabase.from('assistants').select('name').eq('id', args.assistant_id).maybeSingle();
+  return { ok: true, ten: a?.name, them: added, bo: removed, khong_thay: notfound };
+}
+
 // Điểm danh trợ giảng: đánh dấu trợ giảng đã dạy các lớp trong 1 ngày (mỗi lớp = 1 buổi). CHỈ gọi sau xác nhận.
 async function toolMarkAssistantTaught(args: { assistant_id: string; class_ids: string[]; date?: string }) {
   const date = args.date || todayStr();
@@ -794,6 +820,7 @@ async function runTool(name: string, args: any): Promise<unknown> {
     case 'rename_student': return toolRenameStudent(args);
     case 'find_assistant': return toolFindAssistant(args);
     case 'add_assistant': return toolAddAssistant(args);
+    case 'assign_assistant_classes': return toolAssignAssistantClasses(args);
     case 'mark_assistant_taught': return toolMarkAssistantTaught(args);
     case 'get_assistant_sessions': return toolGetAssistantSessions(args);
     default: return { error: `unknown_tool: ${name}` };
@@ -1040,6 +1067,19 @@ const TOOLS = [{
       },
     },
     {
+      name: 'assign_assistant_classes',
+      description: 'Thêm hoặc bớt LỚP PHỤ TRÁCH cho một trợ giảng đã có. CHỈ gọi SAU KHI người dùng đã xác nhận. assistant_id lấy từ find_assistant.',
+      parameters: {
+        type: 'object',
+        properties: {
+          assistant_id: { type: 'string', description: 'ID trợ giảng (từ find_assistant)' },
+          add_classes: { type: 'array', items: { type: 'string' }, description: 'Tên các lớp cần THÊM (tùy chọn)' },
+          remove_classes: { type: 'array', items: { type: 'string' }, description: 'Tên các lớp cần BỎ (tùy chọn)' },
+        },
+        required: ['assistant_id'],
+      },
+    },
+    {
       name: 'mark_assistant_taught',
       description: 'Điểm danh trợ giảng: đánh dấu trợ giảng đã dạy các lớp trong 1 ngày (mỗi lớp = 1 buổi). CHỈ gọi SAU KHI người dùng đã xác nhận. assistant_id và class_id lấy từ find_assistant.',
       parameters: {
@@ -1123,6 +1163,7 @@ QUY TRÌNH SỬA TÊN HỌC SINH:
 
 QUY TRÌNH TRỢ GIẢNG:
 - TẠO TRỢ GIẢNG: cần tên; tùy chọn SĐT, ghi chú, lớp phụ trách. TÓM TẮT rồi chờ xác nhận → add_assistant.
+- ĐỔI/THÊM/BỚT LỚP PHỤ TRÁCH: gọi find_assistant lấy assistant_id + lớp hiện tại. Xác định lớp cần thêm (add_classes) và/hoặc bỏ (remove_classes). TÓM TẮT "Trợ giảng [tên]: thêm lớp [...], bỏ lớp [...]. OK?" rồi chờ xác nhận → assign_assistant_classes.
 - ĐIỂM DANH TRỢ GIẢNG: gọi find_assistant để lấy assistant_id + lớp phụ trách. Xác định các lớp trợ giảng đã dạy (theo lời người dùng), map sang class_id. Mặc định ngày = hôm nay. TÓM TẮT "Điểm danh [tên] ngày [d/m]: dạy [các lớp]. OK?" rồi chờ xác nhận → mark_assistant_taught.
 - THỐNG KÊ BUỔI DẠY: dùng get_assistant_sessions (tháng, tùy chọn 1 trợ giảng) — chỉ đọc, trả lời dạng danh sách "Trợ giảng - Lớp - Số buổi".
 
@@ -1140,7 +1181,7 @@ QUY TẮC TRÌNH BÀY (rất quan trọng):
 // ==================== HANDLER ====================
 
 // Các công cụ GHI (cần xác nhận)
-const WRITE_TOOLS = ['mark_paid', 'save_attendance', 'add_student', 'transfer_student', 'rename_student', 'add_assistant', 'mark_assistant_taught'];
+const WRITE_TOOLS = ['mark_paid', 'save_attendance', 'add_student', 'transfer_student', 'rename_student', 'add_assistant', 'assign_assistant_classes', 'mark_assistant_taught'];
 
 // Tên gọi (tên riêng) = từ cuối của họ tên đầy đủ. VD "Nguyễn Thị Trúc" → "Trúc".
 function givenName(full: string): string {
