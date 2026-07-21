@@ -1309,8 +1309,11 @@ export async function POST(req: Request) {
 
     const answer = parts.map((p: any) => p.text).filter(Boolean).join('').trim();
     if (!answer) return Response.json({ error: 'empty' }, { status: 500 });
+    // AI đang chờ xác nhận? → có hành động ghi bị chặn, HOẶC câu trả lời là câu hỏi xác nhận
+    const confirmCue = /(ok chứ|xác nhận|đồng ý|được chứ|chốt nhé|đúng không|ghi nhé|lưu nhé)/i.test(answer);
+    const awaitingConfirm = blockedActions.length > 0 || (confirmCue && answer.includes('?'));
     // Kèm thông báo phụ huynh (mỗi em 1 cái) + hành động đang chờ xác nhận để client gửi lại khi "ok"
-    return Response.json({ answer: answer + noticesBlock(paidResults), pendingActions: blockedActions });
+    return Response.json({ answer: answer + noticesBlock(paidResults), pendingActions: blockedActions, awaitingConfirm });
   }
 
   return Response.json({ error: 'too_many_steps' }, { status: 500 });

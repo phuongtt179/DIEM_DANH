@@ -21,6 +21,7 @@ export default function ChatPage() {
   const [chat, setChat] = useState<Msg[]>([]);
   const [loading, setLoading] = useState(false);
   const [errMsg, setErrMsg] = useState('');
+  const [awaiting, setAwaiting] = useState(false); // AI đang chờ xác nhận → hiện nút OK/Hủy
   const pendingRef = useRef<any[]>([]); // hành động ghi đang chờ xác nhận
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -71,12 +72,20 @@ export default function ChatPage() {
         return;
       }
       pendingRef.current = Array.isArray(data.pendingActions) ? data.pendingActions : [];
+      setAwaiting(!!data.awaitingConfirm);
       setChat([...newChat, { role: 'ai', content: data.answer }]);
     } catch {
       setErrMsg('Có lỗi mạng, thử lại nhé.');
     } finally {
       setLoading(false);
     }
+  }
+
+  // Bấm Hủy: bỏ hành động đang chờ, không ghi gì
+  function cancelPending() {
+    pendingRef.current = [];
+    setAwaiting(false);
+    setChat(c => [...c, { role: 'ai', content: 'Đã hủy. Bạn cần gì nữa không?' }]);
   }
 
   return (
@@ -139,6 +148,19 @@ export default function ChatPage() {
             <div className="bg-white border border-indigo-100 rounded-2xl rounded-bl-md px-4 py-3 shadow-sm">
               <Loader2 size={16} className="animate-spin text-indigo-400" />
             </div>
+          </div>
+        )}
+
+        {awaiting && !loading && (
+          <div className="flex gap-2 pl-10">
+            <button onClick={() => send('ok')}
+              className="px-4 py-2 rounded-xl bg-emerald-500 text-white text-sm font-bold hover:bg-emerald-600 shadow active:scale-95 transition">
+              ✓ OK, xác nhận
+            </button>
+            <button onClick={cancelPending}
+              className="px-4 py-2 rounded-xl bg-gray-200 text-gray-700 text-sm font-semibold hover:bg-gray-300 active:scale-95 transition">
+              ✕ Hủy
+            </button>
           </div>
         )}
         <div ref={bottomRef} />
