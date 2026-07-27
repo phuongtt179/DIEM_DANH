@@ -454,6 +454,8 @@ export default function AssistantsPage() {
         const gDow = (d: number) => new Date(Date.UTC(gy, gm - 1, d)).getUTCDay(); // 0 = CN
         const WD = ['CN', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7'];
         const src = gridEdit ? gridDraft : grid;
+        const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Ho_Chi_Minh' });
+        const todayDay = todayStr.slice(0, 7) === attMonth ? parseInt(todayStr.slice(8, 10)) : -1; // -1 nếu không phải tháng hiện tại
 
         return (
           <div className="bg-white rounded-xl shadow p-4 lg:p-6">
@@ -522,10 +524,11 @@ export default function AssistantsPage() {
                       <th className="sticky left-0 z-10 bg-gray-50 border border-gray-200 px-3 py-1.5 text-left font-bold text-gray-700 min-w-[120px]">Lớp</th>
                       {gDays.map(d => {
                         const sun = gDow(d) === 0;
+                        const isToday = d === todayDay;
                         return (
-                          <th key={d} className={`border border-gray-200 px-1 py-1 text-center min-w-[34px] ${sun ? 'bg-red-100 text-red-600' : 'text-gray-600'}`}>
+                          <th key={d} className={`border px-1 py-1 text-center min-w-[34px] ${isToday ? 'border-blue-600 bg-blue-600 text-white' : sun ? 'border-gray-200 bg-red-100 text-red-600' : 'border-gray-200 text-gray-600'}`}>
                             <div className="text-[13px] font-bold leading-none">{d}</div>
-                            <div className="text-[10px] font-medium opacity-70">{WD[gDow(d)]}</div>
+                            <div className={`text-[10px] font-medium ${isToday ? 'opacity-90' : 'opacity-70'}`}>{WD[gDow(d)]}</div>
                           </th>
                         );
                       })}
@@ -541,10 +544,11 @@ export default function AssistantsPage() {
                           <td className="sticky left-0 z-10 bg-white border border-gray-200 px-3 py-1.5 font-semibold text-gray-800 min-w-[120px]">{c.name}</td>
                           {gDays.map(d => {
                             const sun = gDow(d) === 0;
+                            const isToday = d === todayDay;
                             const cell = row[d];
                             return (
                               <td key={d} onClick={() => toggleCell(c.id, d)}
-                                className={`border border-gray-200 text-center h-8 select-none ${sun ? 'bg-red-50' : ''} ${gridEdit ? 'cursor-pointer hover:bg-blue-50' : ''}`}>
+                                className={`border text-center h-8 select-none ${isToday ? 'border-blue-400 bg-blue-100' : sun ? 'border-gray-200 bg-red-50' : 'border-gray-200'} ${gridEdit ? 'cursor-pointer hover:bg-blue-50' : ''}`}>
                                 {cell?.status === 'present' ? <span className="text-green-600 font-bold">✓</span>
                                   : cell?.status === 'absent' ? <span className="text-red-500 font-bold">✗</span> : ''}
                               </td>
