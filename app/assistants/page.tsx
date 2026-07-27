@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
 import { Plus, Edit2, Trash2, X, GraduationCap, ClipboardList, BarChart3, Save } from 'lucide-react';
 import { format } from 'date-fns';
@@ -67,6 +67,8 @@ export default function AssistantsPage() {
   const [gridEdit, setGridEdit] = useState(false);
   const [savingGrid, setSavingGrid] = useState(false);
   const [loadingGrid, setLoadingGrid] = useState(false);
+  const scrollRef = useRef<HTMLDivElement>(null);           // vùng cuộn ngang của lưới
+  const todayThRef = useRef<HTMLTableCellElement>(null);     // ô header ngày hôm nay
 
   // Stats tab state
   const [statsMonth, setStatsMonth] = useState(format(new Date(), 'yyyy-MM'));
@@ -98,6 +100,19 @@ export default function AssistantsPage() {
     if (attAssistantId && attMonth) loadGrid();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [attAssistantId, attMonth, assistantClassMap]);
+
+  // Sau khi lưới hiện: cuộn ngang để cột NGÀY HÔM NAY nằm giữa màn hình (tiện trên điện thoại)
+  useEffect(() => {
+    if (tab !== 'attendance' || loadingGrid) return;
+    const id = requestAnimationFrame(() => {
+      const cont = scrollRef.current, cell = todayThRef.current;
+      if (!cont || !cell) return;
+      const cr = cont.getBoundingClientRect();
+      const er = cell.getBoundingClientRect();
+      cont.scrollLeft += (er.left - cr.left) - cont.clientWidth / 2 + er.width / 2;
+    });
+    return () => cancelAnimationFrame(id);
+  }, [tab, attAssistantId, attMonth, grid, loadingGrid]);
 
   async function loadData() {
     setLoading(true);
@@ -517,7 +532,7 @@ export default function AssistantsPage() {
             ) : loadingGrid ? (
               <div className="flex justify-center py-12"><div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600" /></div>
             ) : (
-              <div className="overflow-x-auto">
+              <div ref={scrollRef} className="overflow-x-auto">
                 <table className="border-collapse text-sm">
                   <thead>
                     <tr>
@@ -526,7 +541,7 @@ export default function AssistantsPage() {
                         const sun = gDow(d) === 0;
                         const isToday = d === todayDay;
                         return (
-                          <th key={d} className={`border px-1 py-1 text-center min-w-[34px] ${isToday ? 'border-blue-600 bg-blue-600 text-white' : sun ? 'border-gray-200 bg-red-100 text-red-600' : 'border-gray-200 text-gray-600'}`}>
+                          <th key={d} ref={isToday ? todayThRef : undefined} className={`border px-1 py-1 text-center min-w-[34px] ${isToday ? 'border-blue-600 bg-blue-600 text-white' : sun ? 'border-gray-200 bg-red-100 text-red-600' : 'border-gray-200 text-gray-600'}`}>
                             <div className="text-[13px] font-bold leading-none">{d}</div>
                             <div className={`text-[10px] font-medium ${isToday ? 'opacity-90' : 'opacity-70'}`}>{WD[gDow(d)]}</div>
                           </th>
