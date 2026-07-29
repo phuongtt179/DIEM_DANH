@@ -239,6 +239,15 @@ export async function POST(req: Request) {
     parts: [{ text: String(m.content || '') }],
   }));
 
+  // Ảnh giấy mời (chụp màn hình) đính kèm ở tin nhắn cuối → cho Gemini "nhìn"
+  const image = body?.image;
+  if (image?.data && contents.length) {
+    const last = contents[contents.length - 1];
+    if (last?.role === 'user') {
+      last.parts.unshift({ inlineData: { mimeType: image.mimeType || 'image/png', data: image.data } });
+    }
+  }
+
   const sysInstruction = { parts: [{ text: systemPrompt() }] };
   const cardMap = new Map<string, WpEvent>();  // công việc để render thành card
   let statsOut: WpStats | null = null;         // thẻ tổng hợp (nếu có)

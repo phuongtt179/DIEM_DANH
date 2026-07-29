@@ -2,13 +2,13 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import { CalendarClock, Loader2, Send, Check, Trash2, RotateCcw, CalendarDays, CalendarRange, Calendar, BarChart3, Pencil } from 'lucide-react';
+import { CalendarClock, Loader2, Send, Check, Trash2, RotateCcw, CalendarDays, CalendarRange, Calendar, BarChart3, Pencil, ImagePlus, X } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { deriveState, type WpEvent, type WpState, type WpStats } from '@/lib/work';
 
 // src:'quick' = kết quả từ 3 nút/Tổng hợp (chỉ giữ MỘT lần, bấm lại thì thay thế)
 type Block =
-  | { kind: 'user'; text: string; src?: 'quick' }
+  | { kind: 'user'; text: string; src?: 'quick'; img?: string }
   | { kind: 'ai'; text: string; src?: 'quick' }
   | { kind: 'label'; text: string; src?: 'quick' }
   | { kind: 'empty'; text: string; src?: 'quick' }
@@ -196,8 +196,10 @@ export default function WorkPage() {
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [errMsg, setErrMsg] = useState('');
+  const [img, setImg] = useState<{ dataUrl: string; mimeType: string; base64: string } | null>(null); // ảnh giấy mời đang đính kèm
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
   const didInit = useRef(false);
 
   // Chỉ ai có quyền use_work mới vào
@@ -271,23 +273,54 @@ export default function WorkPage() {
     finally { setLoading(false); }
   }
 
+  // Đọc 1 file ảnh → base64 để đính kèm
+  function readImage(file: File) {
+    if (!file.type.startsWith('image/')) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = String(reader.result || '');
+      setImg({ dataUrl, mimeType: file.type, base64: dataUrl.split(',')[1] || '' });
+    };
+    reader.readAsDataURL(file);
+  }
+  // Dán ảnh từ clipboard (chụp màn hình)
+  function onPaste(e: React.ClipboardEvent) {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    for (const it of Array.from(items)) {
+      if (it.type.startsWith('image/')) {
+        const f = it.getAsFile();
+        if (f) { e.preventDefault(); readImage(f); }
+        return;
+      }
+    }
+  }
+
   async function send(text?: string) {
     const q = (text ?? input).trim();
-    if (!q || loading || !user) return;
+    if ((!q && !img) || loading || !user) return;
     setErrMsg('');
-    const newBlocks: Block[] = [...blocks, { kind: 'user', text: q }];
+    const curImg = img;
+    const displayText = q || '📷 Ảnh giấy mời';
+    const sendText = q || 'Đọc nội dung giấy mời / tin nhắn trong ảnh và tạo công việc tương ứng.';
+    const newBlocks: Block[] = [...blocks, { kind: 'user', text: displayText, img: curImg?.dataUrl }];
     setBlocks(newBlocks);
     setInput('');
+    setImg(null);
     if (inputRef.current) inputRef.current.style.height = 'auto';
     setLoading(true);
-    // Lịch sử hội thoại (chỉ user/ai)
-    const msgs = newBlocks
+    // Lịch sử hội thoại (chỉ user/ai); tin cuối dùng sendText (khi chỉ có ảnh)
+    const prior = blocks
       .filter(b => b.kind === 'user' || b.kind === 'ai')
       .map(b => ({ role: b.kind, content: (b as any).text }));
+    const msgs = [...prior, { role: 'user', content: sendText }];
     try {
       const res = await fetch('/api/work/chat', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ownerId: user.id, messages: msgs }),
+        body: JSON.stringify({
+          ownerId: user.id, messages: msgs,
+          image: curImg ? { data: curImg.base64, mimeType: curImg.mimeType } : undefined,
+        }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.answer) { showError(res, data); return; }
@@ -405,7 +438,10 @@ export default function WorkPage() {
               );
               if (b.kind === 'user') return (
                 <div key={i} className="flex justify-end">
-                  <div className="max-w-[85%] px-4 py-2.5 rounded-2xl rounded-br-md text-sm leading-relaxed whitespace-pre-wrap bg-gradient-to-br from-sky-500 to-blue-600 text-white shadow-md">{b.text}</div>
+                  <div className="max-w-[85%] px-4 py-2.5 rounded-2xl rounded-br-md text-sm leading-relaxed whitespace-pre-wrap bg-gradient-to-br from-sky-500 to-blue-600 text-white shadow-md">
+                    {b.img && <img src={b.img} alt="ảnh" className="rounded-lg mb-1.5 max-h-48 w-auto" />}
+                    {b.text}
+                  </div>
                 </div>
               );
               if (b.kind === 'ai') return (
@@ -436,22 +472,46 @@ export default function WorkPage() {
             <div className="mx-4 mb-2 bg-red-50 border border-red-200 rounded-xl px-4 py-2 text-center text-xs text-red-600 font-semibold shrink-0">{errMsg}</div>
           )}
 
+          {/* Preview ảnh đính kèm */}
+          {img && (
+            <div className="px-3 pt-2 shrink-0">
+              <div className="relative inline-block">
+                <img src={img.dataUrl} alt="ảnh đính kèm" className="h-20 w-auto rounded-lg border border-gray-200" />
+                <button onClick={() => setImg(null)}
+                  className="absolute -top-2 -right-2 w-5 h-5 rounded-full bg-gray-700 text-white flex items-center justify-center shadow">
+                  <X size={12} />
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* Ô nhập */}
           <div className="border-t border-gray-200 bg-white px-3 py-3 flex gap-2 items-end shrink-0">
+            <input ref={fileRef} type="file" accept="image/*" className="hidden"
+              onChange={e => { const f = e.target.files?.[0]; if (f) readImage(f); e.target.value = ''; }} />
+            <button
+              onClick={() => fileRef.current?.click()}
+              disabled={loading}
+              title="Đính kèm ảnh giấy mời"
+              className="w-10 h-10 rounded-full bg-gray-100 hover:bg-gray-200 flex items-center justify-center text-gray-600 shrink-0 disabled:opacity-40"
+            >
+              <ImagePlus size={18} />
+            </button>
             <textarea
               ref={inputRef}
               value={input}
               onChange={e => { setInput(e.target.value); autoGrow(e.target); }}
               onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }}
+              onPaste={onPaste}
               disabled={loading}
               rows={1}
-              placeholder="Dán giấy mời / tin Zalo, hoặc gõ: họp 8h thứ 6…"
+              placeholder="Dán ảnh giấy mời, hoặc gõ: họp 8h thứ 6…"
               className="flex-1 border border-gray-200 rounded-2xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-sky-300 bg-gray-50 resize-none overflow-y-auto leading-snug"
               style={{ maxHeight: 140 }}
             />
             <button
               onClick={() => send()}
-              disabled={!input.trim() || loading}
+              disabled={(!input.trim() && !img) || loading}
               className="w-10 h-10 rounded-full bg-gradient-to-br from-sky-500 to-blue-500 flex items-center justify-center text-white transition-all hover:scale-105 active:scale-95 disabled:opacity-40 disabled:scale-100 shadow-md shrink-0"
             >
               {loading ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
