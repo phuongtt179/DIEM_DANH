@@ -692,8 +692,19 @@ async function toolFindAssistant(args: { name: string }) {
 }
 
 // Tạo trợ giảng mới + (tùy chọn) phân công lớp. CHỈ gọi sau xác nhận.
-async function toolAddAssistant(args: { name: string; phone?: string; note?: string; class_names?: string[] }) {
+async function toolAddAssistant(args: { name: string; phone?: string; note?: string; class_names?: string[]; allow_duplicate?: boolean }) {
   if (!args.name?.trim()) return { ok: false, error: 'thiếu tên trợ giảng' };
+
+  // Chặn TRÙNG TÊN: đã có trợ giảng cùng tên thì KHÔNG tạo mới (tránh nhân đôi).
+  const { data: existAll } = await supabase.from('assistants').select('id, name');
+  const dup = (existAll || []).find((a: any) => normName(a.name) === normName(args.name));
+  if (dup && !args.allow_duplicate) {
+    return {
+      ok: false, duplicate: true,
+      message: `Đã có trợ giảng tên "${args.name.trim()}". Nếu bạn muốn THÊM LỚP phụ trách cho người này thì dùng chức năng thêm lớp (assign_assistant_classes) với assistant_id từ find_assistant — ĐỪNG tạo mới. Chỉ tạo mới nếu chắc chắn là một người KHÁC trùng tên.`,
+    };
+  }
+
   const classIds: { id: string; name: string }[] = [];
   for (const cn of (args.class_names || [])) {
     const r = await resolveClass(cn);
@@ -1054,7 +1065,7 @@ const TOOLS = [{
     },
     {
       name: 'add_assistant',
-      description: 'Tạo trợ giảng mới, tùy chọn phân công các lớp phụ trách. CHỈ gọi SAU KHI người dùng đã xác nhận.',
+      description: 'Tạo trợ giảng MỚI HOÀN TOÀN. KHÔNG dùng để thêm lớp cho trợ giảng đã có (dùng assign_assistant_classes cho việc đó). CHỈ gọi SAU KHI người dùng đã xác nhận.',
       parameters: {
         type: 'object',
         properties: {
@@ -1062,6 +1073,7 @@ const TOOLS = [{
           phone: { type: 'string', description: 'SĐT (tùy chọn)' },
           note: { type: 'string', description: 'Ghi chú (tùy chọn)' },
           class_names: { type: 'array', items: { type: 'string' }, description: 'Tên các lớp phụ trách (tùy chọn)' },
+          allow_duplicate: { type: 'boolean', description: 'Chỉ đặt true khi người dùng đã biết có trợ giảng trùng tên và vẫn muốn tạo một người KHÁC cùng tên.' },
         },
         required: ['name'],
       },
@@ -1162,8 +1174,8 @@ QUY TRÌNH SỬA TÊN HỌC SINH:
 2. TÓM TẮT: "Đổi tên [tên cũ] → [tên mới]. OK?" rồi chờ xác nhận. CHỈ gọi rename_student sau khi đồng ý.
 
 QUY TRÌNH TRỢ GIẢNG:
-- TẠO TRỢ GIẢNG: cần tên; tùy chọn SĐT, ghi chú, lớp phụ trách. TÓM TẮT rồi chờ xác nhận → add_assistant.
-- ĐỔI/THÊM/BỚT LỚP PHỤ TRÁCH: gọi find_assistant lấy assistant_id + lớp hiện tại. Xác định lớp cần thêm (add_classes) và/hoặc bỏ (remove_classes). TÓM TẮT "Trợ giảng [tên]: thêm lớp [...], bỏ lớp [...]. OK?" rồi chờ xác nhận → assign_assistant_classes.
+- TẠO TRỢ GIẢNG: chỉ khi là người MỚI hoàn toàn. KIỂM TRA TRÙNG trước bằng find_assistant; nếu đã có cùng tên thì ĐỪNG tạo mới. Cần tên; tùy chọn SĐT, ghi chú, lớp. TÓM TẮT rồi chờ xác nhận → add_assistant.
+- ĐỔI/THÊM/BỚT LỚP PHỤ TRÁCH cho trợ giảng ĐÃ CÓ: TUYỆT ĐỐI KHÔNG dùng add_assistant (sẽ tạo trùng!). Gọi find_assistant lấy assistant_id + lớp hiện tại, xác định lớp thêm (add_classes)/bỏ (remove_classes), TÓM TẮT "Trợ giảng [tên]: thêm lớp [...], bỏ lớp [...]. OK?" rồi chờ xác nhận → assign_assistant_classes.
 - ĐIỂM DANH TRỢ GIẢNG: gọi find_assistant để lấy assistant_id + lớp phụ trách. Xác định các lớp trợ giảng đã dạy (theo lời người dùng), map sang class_id. Mặc định ngày = hôm nay. TÓM TẮT "Điểm danh [tên] ngày [d/m]: dạy [các lớp]. OK?" rồi chờ xác nhận → mark_assistant_taught.
 - THỐNG KÊ BUỔI DẠY: dùng get_assistant_sessions (tháng, tùy chọn 1 trợ giảng) — chỉ đọc, trả lời dạng danh sách "Trợ giảng - Lớp - Số buổi".
 
