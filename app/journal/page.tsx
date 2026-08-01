@@ -6,18 +6,39 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useRouter } from 'next/navigation';
 import { Send, Loader2, NotebookPen, List, MessageSquare, Star, Pencil, Trash2, Check, X } from 'lucide-react';
 
-type Msg = { role: 'user' | 'system'; content: string };
+type Msg = { role: 'user' | 'system'; content: string; choice?: string };
 interface Entry { id: string; content: string; created_at: string; tags: string[] | null; is_favorite: boolean; }
 
-// Nhận diện ý định theo tiền tố "lưu:" / "hỏi:"
-function parseIntent(raw: string): { action: 'save' | 'ask' | 'unknown'; dateStr: string | null; content: string } {
+// "hỏi ..." — từ chỉ dùng để tra cứu, không dùng khi kể chuyện → coi là HỎI chắc chắn
+const ASK_STRONG_RE = /^(hỏi|hoi)\b[:,]?\s*/i;
+// Các động từ có thể mở đầu câu hỏi NHƯNG cũng hay dùng trong câu kể (vd "xem phim", "tìm thấy chìa khóa")
+// → không tự quyết, để hỏi lại bằng nút bấm
+const ASK_SOFT_START_RE = /^(tìm|tim|tra cứu|tra cuu|tra|xem lại|xem lai|xem thử|xem thu|xem|kiểm tra|kiem tra|liệt kê|liet ke|thống kê|thong ke|tổng hợp|tong hop|cho (tôi |toi )?xem|nhắc lại|nhac lai|ôn lại|on lai)\b[:,]?\s*/i;
+// Các từ/cụm kết thúc câu đặc trưng cho câu hỏi tiếng Việt (không phải lúc nào cũng có dấu "?")
+// nhưng cũng có thể xuất hiện cuối câu kể (vd "hôm nay chẳng có gì") → cũng để hỏi lại bằng nút bấm
+const ASK_END_RE = /\b(không|khong|chưa|chua|à|ư|hả|hen|hử|gì|gi|đâu|dau|mấy|may|thế nào|the nao|ra sao|khi nào|khi nao|bao giờ|bao gio|bao nhiêu|bao nhieu|như thế nào|nhu the nao|ntn|nhỉ|nhi)[.!\s]*$/i;
+
+function guessAction(text: string): 'save' | 'ask' | 'ambiguous' {
+  if (/[?？]\s*$/.test(text)) return 'ask';
+  if (ASK_STRONG_RE.test(text)) return 'ask';
+  if (ASK_SOFT_START_RE.test(text) || ASK_END_RE.test(text.toLowerCase())) return 'ambiguous';
+  return 'save';
+}
+
+// Nhận diện ý định: ưu tiên tiền tố tường minh "lưu:" / "hỏi:" (vẫn hỗ trợ để ép khi đoán sai),
+// nếu không có tiền tố thì tự đoán LƯU hay HỎI dựa vào cấu trúc câu.
+// Khi không chắc (action = 'ambiguous') UI sẽ hiện 2 nút Lưu/Hỏi để người dùng chọn thay vì phải gõ lại.
+function parseIntent(raw: string): { action: 'save' | 'ask' | 'ambiguous'; dateStr: string | null; content: string } {
+  const trimmed = raw.trim();
   // Cho phép ghi lùi ngày: "lưu 14/7: ..." hoặc "lưu 14/7/2026: ..."
-  const m = raw.trim().match(/^(lưu|luu|hỏi|hoi)\s*(\d{1,2}[\/\-]\d{1,2}(?:[\/\-]\d{2,4})?)?\s*[:：]\s*([\s\S]*)$/i);
+  const m = trimmed.match(/^(lưu|luu|hỏi|hoi)\s*(\d{1,2}[\/\-]\d{1,2}(?:[\/\-]\d{2,4})?)?\s*[:：]\s*([\s\S]*)$/i);
   if (m) {
     const key = m[1].toLowerCase();
     return { action: (key === 'lưu' || key === 'luu') ? 'save' : 'ask', dateStr: m[2] || null, content: m[3].trim() };
   }
-  return { action: 'unknown', dateStr: null, content: raw.trim() };
+  const action = guessAction(trimmed);
+  const content = action === 'ask' ? (trimmed.replace(ASK_STRONG_RE, '').trim() || trimmed) : trimmed;
+  return { action, dateStr: null, content };
 }
 
 // Tách #nhãn từ nội dung
@@ -85,23 +106,7 @@ export default function JournalPage() {
     setLoadingList(false);
   }
 
-  async function send() {
-    const raw = input.trim();
-    if (!raw || loading) return;
-    const { action, dateStr, content } = parseIntent(raw);
-    setMsgs(m => [...m, { role: 'user', content: raw }]);
-    setInput('');
-    if (inputRef.current) inputRef.current.style.height = 'auto';
-
-    if (action === 'unknown') {
-      setMsgs(m => [...m, { role: 'system', content: 'Bạn muốn LƯU hay HỎI? Gõ lại với "lưu:" để ghi, hoặc "hỏi:" để tra cứu nhé.' }]);
-      return;
-    }
-    if (!content) {
-      setMsgs(m => [...m, { role: 'system', content: action === 'save' ? 'Bạn chưa ghi nội dung sau "lưu:".' : 'Bạn chưa ghi câu hỏi sau "hỏi:".' }]);
-      return;
-    }
-
+  async function executeAction(action: 'save' | 'ask', content: string, dateStr: string | null) {
     setLoading(true);
     try {
       if (action === 'save') {
@@ -126,6 +131,32 @@ export default function JournalPage() {
     } finally {
       setLoading(false);
     }
+  }
+
+  async function send() {
+    const raw = input.trim();
+    if (!raw || loading) return;
+    const { action, dateStr, content } = parseIntent(raw);
+    setMsgs(m => [...m, { role: 'user', content: raw }]);
+    setInput('');
+    if (inputRef.current) inputRef.current.style.height = 'auto';
+
+    if (!content) {
+      setMsgs(m => [...m, { role: 'system', content: action === 'save' ? 'Bạn chưa ghi nội dung sau "lưu:".' : 'Bạn chưa ghi câu hỏi sau "hỏi:".' }]);
+      return;
+    }
+    if (action === 'ambiguous') {
+      setMsgs(m => [...m, { role: 'system', content: 'Câu này mình chưa chắc là LƯU hay HỎI, bạn chọn giúp nhé:', choice: content }]);
+      return;
+    }
+    await executeAction(action, content, dateStr);
+  }
+
+  async function resolveChoice(idx: number, action: 'save' | 'ask') {
+    const content = msgs[idx]?.choice;
+    if (!content || loading) return;
+    setMsgs(m => m.map((x, i) => i === idx ? { ...x, choice: undefined, content: x.content + `\n→ Đã chọn: ${action === 'save' ? '📝 Lưu' : '💬 Hỏi'}` } : x));
+    await executeAction(action, content, null);
   }
 
   async function toggleFav(e: Entry) {
@@ -177,14 +208,21 @@ export default function JournalPage() {
             {msgs.length === 0 && !loading && (
               <div className="max-w-md mx-auto text-center text-gray-400 pt-8 text-sm">
                 <div className="text-4xl mb-3">📔</div>
-                <p className="text-gray-500"><b>lưu:</b> hôm nay thay nhớt xe AB #xe</p>
-                <p className="text-gray-500"><b>hỏi:</b> tuần này ghi gì? / hỏi: #xe</p>
+                <p className="text-gray-500">Gõ tự nhiên, hệ thống tự hiểu là lưu hay hỏi: <b>hôm nay thay nhớt xe AB #xe</b></p>
+                <p className="text-gray-500">Câu hỏi thì kết bằng dấu ? hoặc bắt đầu bằng "hỏi": <b>tuần này ghi gì?</b></p>
+                <p className="text-gray-400 text-xs mt-1">Chưa chắc thì bot sẽ hỏi lại bằng 2 nút Lưu/Hỏi để bạn chọn.</p>
               </div>
             )}
             {msgs.map((m, i) => (
               <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                 <div className={`max-w-[82%] px-4 py-2.5 rounded-2xl text-sm leading-relaxed whitespace-pre-wrap ${m.role === 'user' ? 'bg-gradient-to-br from-indigo-500 to-blue-600 text-white rounded-br-md shadow-md' : 'bg-white text-gray-800 border border-gray-200 rounded-bl-md shadow-sm'}`}>
                   {m.content}
+                  {m.choice && (
+                    <div className="flex gap-2 mt-2">
+                      <button onClick={() => resolveChoice(i, 'save')} disabled={loading} className="px-3 py-1.5 rounded-full bg-indigo-600 text-white text-xs font-semibold hover:bg-indigo-700 disabled:opacity-40">📝 Lưu</button>
+                      <button onClick={() => resolveChoice(i, 'ask')} disabled={loading} className="px-3 py-1.5 rounded-full bg-white text-indigo-600 border border-indigo-300 text-xs font-semibold hover:bg-indigo-50 disabled:opacity-40">💬 Hỏi</button>
+                    </div>
+                  )}
                 </div>
               </div>
             ))}
@@ -200,7 +238,7 @@ export default function JournalPage() {
               ref={inputRef} value={input}
               onChange={e => { setInput(e.target.value); autoGrow(e.target); }}
               onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }}
-              disabled={loading} rows={1} placeholder='lưu: ... hoặc hỏi: ...'
+              disabled={loading} rows={1} placeholder='Gõ tự nhiên để lưu, hoặc đặt câu hỏi...'
               className="flex-1 border border-gray-200 rounded-2xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 bg-gray-50 resize-none overflow-y-auto leading-snug"
               style={{ maxHeight: 140 }}
             />
