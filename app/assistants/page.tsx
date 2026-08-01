@@ -31,7 +31,11 @@ interface StatRow {
   class_id: string;
   class_name: string;
   total_sessions: number;
+  rate: number;
 }
+
+// Đơn giá mặc định khi phân công lớp mới chưa từng đặt riêng
+const DEFAULT_RATE = 100000;
 
 interface PaymentRecord {
   id: string;
@@ -57,7 +61,9 @@ export default function AssistantsPage() {
   const [editingAssistant, setEditingAssistant] = useState<Assistant | null>(null);
   const [formData, setFormData] = useState({ name: '', phone: '', note: '' });
   const [assignedClassIds, setAssignedClassIds] = useState<string[]>([]);
+  const [classRates, setClassRates] = useState<Record<string, number>>({}); // class_id -> đ/buổi (đang sửa trong modal)
   const [assistantClassMap, setAssistantClassMap] = useState<Record<string, string[]>>({});
+  const [classRateMap, setClassRateMap] = useState<Record<string, number>>({}); // `${assistant_id}:${class_id}` -> đ/buổi
 
   // Attendance tab state (lưới theo tháng)
   const [attMonth, setAttMonth] = useState(format(new Date(), 'yyyy-MM'));
@@ -78,7 +84,7 @@ export default function AssistantsPage() {
 
   // Payment modal state
   const [showPayModal, setShowPayModal] = useState(false);
-  const [payingAssistant, setPayingAssistant] = useState<{ id: string; name: string; total: number } | null>(null);
+  const [payingAssistant, setPayingAssistant] = useState<{ id: string; name: string; total: number; totalAmount: number; sessions: Record<string, number>; rates: Record<string, number> } | null>(null);
   const [payInput, setPayInput] = useState('');
 
   useEffect(() => {
@@ -120,16 +126,19 @@ export default function AssistantsPage() {
       const [{ data: aData }, { data: cData }, { data: acData }] = await Promise.all([
         supabase.from('assistants').select('*').order('name'),
         supabase.from('classes').select('id, name, subject').eq('status', 'active').order('name'),
-        supabase.from('assistant_classes').select('assistant_id, class_id'),
+        supabase.from('assistant_classes').select('assistant_id, class_id, rate_per_session'),
       ]);
       setAssistants(aData || []);
       setClasses(cData || []);
       const map: Record<string, string[]> = {};
+      const rateMap: Record<string, number> = {};
       (acData || []).forEach((r: any) => {
         if (!map[r.assistant_id]) map[r.assistant_id] = [];
         map[r.assistant_id].push(r.class_id);
+        rateMap[`${r.assistant_id}:${r.class_id}`] = r.rate_per_session ?? DEFAULT_RATE;
       });
       setAssistantClassMap(map);
+      setClassRateMap(rateMap);
       if (!attAssistantId && aData && aData.length > 0) {
         setAttAssistantId(aData[0].id);
       }
@@ -249,6 +258,7 @@ export default function AssistantsPage() {
             class_id: r.class_id,
             class_name: r.classes?.name || '',
             total_sessions: 0,
+            rate: classRateMap[`${r.assistant_id}:${r.class_id}`] ?? DEFAULT_RATE,
           };
         }
         grouped[key].total_sessions += r.sessions_count;
@@ -292,13 +302,18 @@ export default function AssistantsPage() {
     setEditingAssistant(null);
     setFormData({ name: '', phone: '', note: '' });
     setAssignedClassIds([]);
+    setClassRates({});
     setShowModal(true);
   }
 
   function openEdit(a: Assistant) {
     setEditingAssistant(a);
     setFormData({ name: a.name, phone: a.phone || '', note: a.note || '' });
-    setAssignedClassIds(assistantClassMap[a.id] || []);
+    const classIds = assistantClassMap[a.id] || [];
+    setAssignedClassIds(classIds);
+    const rates: Record<string, number> = {};
+    classIds.forEach(cid => { rates[cid] = classRateMap[`${a.id}:${cid}`] ?? DEFAULT_RATE; });
+    setClassRates(rates);
     setShowModal(true);
   }
 
@@ -322,11 +337,11 @@ export default function AssistantsPage() {
         id = data.id;
       }
 
-      // Sync assigned classes
+      // Sync assigned classes + đơn giá/buổi riêng từng lớp
       await supabase.from('assistant_classes').delete().eq('assistant_id', id);
       if (assignedClassIds.length > 0) {
         await supabase.from('assistant_classes').insert(
-          assignedClassIds.map(cid => ({ assistant_id: id, class_id: cid }))
+          assignedClassIds.map(cid => ({ assistant_id: id, class_id: cid, rate_per_session: classRates[cid] ?? DEFAULT_RATE }))
         );
       }
 
@@ -355,21 +370,23 @@ export default function AssistantsPage() {
     }
   });
 
-  // Pivot: group by assistant
-  const pivotByAssistant: Record<string, { name: string; sessions: Record<string, number> }> = {};
+  // Pivot: group by assistant — kèm đơn giá riêng từng lớp để tính thành tiền đúng
+  const pivotByAssistant: Record<string, { name: string; sessions: Record<string, number>; rates: Record<string, number> }> = {};
   statsRows.forEach(r => {
     if (!pivotByAssistant[r.assistant_id]) {
-      pivotByAssistant[r.assistant_id] = { name: r.assistant_name, sessions: {} };
+      pivotByAssistant[r.assistant_id] = { name: r.assistant_name, sessions: {}, rates: {} };
     }
     pivotByAssistant[r.assistant_id].sessions[r.class_id] = r.total_sessions;
+    pivotByAssistant[r.assistant_id].rates[r.class_id] = r.rate;
   });
   const pivotAssistants = Object.entries(pivotByAssistant).map(([id, val]) => ({
     id,
     name: val.name,
     sessions: val.sessions,
+    rates: val.rates,
     total: Object.values(val.sessions).reduce((s, n) => s + n, 0),
+    totalAmount: Object.entries(val.sessions).reduce((s, [cid, n]) => s + n * (val.rates[cid] ?? DEFAULT_RATE), 0),
   }));
-  const RATE = 100000;
 
   return (
     <div className="p-4 lg:p-8">
@@ -433,14 +450,17 @@ export default function AssistantsPage() {
                 <tbody>
                   {assistants.map(a => {
                     const classIds = assistantClassMap[a.id] || [];
-                    const classNames = classIds.map(id => classes.find(c => c.id === id)?.name || id);
                     return (
                       <tr key={a.id} className="border-t border-gray-100 hover:bg-gray-50">
                         <td className="px-4 py-3 font-semibold text-gray-800">{a.name}</td>
                         <td className="px-4 py-3 text-gray-600">{a.phone || '-'}</td>
                         <td className="px-4 py-3">
-                          {classNames.length > 0
-                            ? <div className="flex flex-wrap gap-1">{classNames.map(n => <span key={n} className="px-2 py-0.5 bg-blue-100 text-blue-700 rounded-full text-xs font-semibold">{n}</span>)}</div>
+                          {classIds.length > 0
+                            ? <div className="flex flex-wrap gap-1">{classIds.map(cid => {
+                                const cname = classes.find(c => c.id === cid)?.name || cid;
+                                const rate = classRateMap[`${a.id}:${cid}`] ?? DEFAULT_RATE;
+                                return <span key={cid} className="px-2 py-0.5 bg-blue-100 text-blue-700 rounded-full text-xs font-semibold">{cname} · {rate.toLocaleString('vi-VN')}đ</span>;
+                              })}</div>
                             : <span className="text-gray-400 text-sm">Chưa phân công</span>}
                         </td>
                         <td className="px-4 py-3 text-gray-500 text-sm">{a.note || '-'}</td>
@@ -619,13 +639,18 @@ export default function AssistantsPage() {
                       <tr key={a.id} className="hover:bg-gray-50">
                         <td className="border border-gray-200 px-3 py-2 font-semibold text-gray-800">{a.name}</td>
                         {pivotClasses.map(c => (
-                          <td key={c.id} className="border border-gray-200 px-3 py-2 text-center text-blue-700 font-bold">
-                            {a.sessions[c.id] || '-'}
+                          <td key={c.id} className="border border-gray-200 px-3 py-2 text-center">
+                            {a.sessions[c.id] ? (
+                              <>
+                                <div className="text-blue-700 font-bold">{a.sessions[c.id]}</div>
+                                <div className="text-[11px] text-gray-400">{(a.rates[c.id] ?? DEFAULT_RATE).toLocaleString('vi-VN')}đ/buổi</div>
+                              </>
+                            ) : '-'}
                           </td>
                         ))}
                         <td className="border border-gray-200 px-3 py-2 text-center font-bold text-gray-800">{a.total}</td>
                         <td className="border border-gray-200 px-3 py-2 text-center font-bold text-green-700">
-                          {(a.total * RATE).toLocaleString('vi-VN')} đ
+                          {a.totalAmount.toLocaleString('vi-VN')} đ
                         </td>
                         <td className="border border-gray-200 px-3 py-2 text-center">
                           {pay ? (
@@ -642,8 +667,8 @@ export default function AssistantsPage() {
                           ) : (
                             <button
                               onClick={() => {
-                                setPayingAssistant({ id: a.id, name: a.name, total: a.total });
-                                setPayInput((a.total * RATE).toString());
+                                setPayingAssistant({ id: a.id, name: a.name, total: a.total, totalAmount: a.totalAmount, sessions: a.sessions, rates: a.rates });
+                                setPayInput(a.totalAmount.toString());
                                 setShowPayModal(true);
                               }}
                               className="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-xs font-semibold hover:bg-blue-700"
@@ -668,7 +693,7 @@ export default function AssistantsPage() {
                       {pivotAssistants.reduce((s, a) => s + a.total, 0)}
                     </td>
                     <td className="border border-gray-200 px-3 py-2 text-center font-bold text-green-700">
-                      {(pivotAssistants.reduce((s, a) => s + a.total, 0) * RATE).toLocaleString('vi-VN')} đ
+                      {pivotAssistants.reduce((s, a) => s + a.totalAmount, 0).toLocaleString('vi-VN')} đ
                     </td>
                     <td className="border border-gray-200" />
                   </tr>
@@ -691,7 +716,18 @@ export default function AssistantsPage() {
               <div className="bg-gray-50 rounded-lg p-3 text-sm text-gray-700 space-y-1">
                 <div><span className="font-semibold">Trợ giảng:</span> {payingAssistant.name}</div>
                 <div><span className="font-semibold">Tháng:</span> {statsMonth.split('-')[1]}/{statsMonth.split('-')[0]}</div>
-                <div><span className="font-semibold">Số buổi:</span> {payingAssistant.total} buổi × 100.000 đ</div>
+                <div className="pt-1 space-y-0.5">
+                  {pivotClasses.filter(c => payingAssistant.sessions[c.id]).map(c => (
+                    <div key={c.id} className="flex justify-between text-gray-600">
+                      <span>{c.name}</span>
+                      <span>{payingAssistant.sessions[c.id]} buổi × {(payingAssistant.rates[c.id] ?? DEFAULT_RATE).toLocaleString('vi-VN')}đ</span>
+                    </div>
+                  ))}
+                </div>
+                <div className="pt-1 border-t border-gray-200 flex justify-between font-semibold">
+                  <span>Tổng ({payingAssistant.total} buổi)</span>
+                  <span>{payingAssistant.totalAmount.toLocaleString('vi-VN')} đ</span>
+                </div>
               </div>
               <div>
                 <label className="block text-sm font-semibold text-gray-700 mb-1">Số tiền thanh toán</label>
@@ -753,22 +789,46 @@ export default function AssistantsPage() {
                 />
               </div>
               <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">Phân công lớp</label>
-                <div className="border-2 border-gray-300 rounded-lg p-3 max-h-48 overflow-y-auto bg-gray-50 space-y-1">
-                  {classes.map(c => (
-                    <label key={c.id} className="flex items-center gap-2 p-2 hover:bg-white rounded cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={assignedClassIds.includes(c.id)}
-                        onChange={e => {
-                          if (e.target.checked) setAssignedClassIds([...assignedClassIds, c.id]);
-                          else setAssignedClassIds(assignedClassIds.filter(id => id !== c.id));
-                        }}
-                        className="rounded border-gray-300 text-blue-600"
-                      />
-                      <span className="text-sm text-gray-700">{c.name} ({c.subject})</span>
-                    </label>
-                  ))}
+                <label className="block text-sm font-semibold text-gray-700 mb-2">Phân công lớp &amp; đơn giá/buổi</label>
+                <div className="border-2 border-gray-300 rounded-lg p-3 max-h-56 overflow-y-auto bg-gray-50 space-y-1">
+                  {classes.map(c => {
+                    const checked = assignedClassIds.includes(c.id);
+                    return (
+                      <div key={c.id} className="flex items-center gap-2 p-2 hover:bg-white rounded">
+                        <label className="flex items-center gap-2 flex-1 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={e => {
+                              if (e.target.checked) {
+                                setAssignedClassIds([...assignedClassIds, c.id]);
+                                setClassRates(r => ({ ...r, [c.id]: r[c.id] ?? DEFAULT_RATE }));
+                              } else {
+                                setAssignedClassIds(assignedClassIds.filter(id => id !== c.id));
+                              }
+                            }}
+                            className="rounded border-gray-300 text-blue-600"
+                          />
+                          <span className="text-sm text-gray-700">{c.name} ({c.subject})</span>
+                        </label>
+                        {checked && (
+                          <div className="flex items-center gap-1 shrink-0">
+                            <input
+                              type="text"
+                              inputMode="numeric"
+                              value={(classRates[c.id] ?? DEFAULT_RATE).toLocaleString('vi-VN')}
+                              onChange={e => {
+                                const n = parseInt(e.target.value.replace(/\D/g, '')) || 0;
+                                setClassRates(r => ({ ...r, [c.id]: n }));
+                              }}
+                              className="w-24 px-2 py-1 border border-gray-300 rounded text-right text-sm font-semibold focus:border-blue-500 focus:outline-none"
+                            />
+                            <span className="text-xs text-gray-500">đ/buổi</span>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
                   {classes.length === 0 && <p className="text-sm text-gray-500 text-center py-2">Chưa có lớp nào</p>}
                 </div>
               </div>
