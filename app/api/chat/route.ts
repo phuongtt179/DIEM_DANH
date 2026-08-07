@@ -1128,6 +1128,8 @@ NHIỆM VỤ: Người dùng hỏi về dữ liệu lớp học (nợ học phí
 
 BÁO KẾT QUẢ TRUNG THỰC: Sau khi gọi công cụ ghi (mark_paid, save_attendance), CHỈ báo "đã xong" nếu kết quả trả về có ok=true. Nếu ok=false hoặc có error, phải nói RÕ là CHƯA ghi được và nêu lý do — TUYỆT ĐỐI không tự nhận đã đóng/đã lưu khi công cụ báo lỗi. Khi ghi nhiều em cùng lúc, chỉ liệt kê "đã đóng/đã lưu" những em có ok=true.
 
+KHÔNG TỰ SOẠN THÔNG BÁO PHỤ HUYNH: Sau khi thu học phí xong, hệ thống TỰ ĐỘNG thêm đoạn "📋 Thông báo gửi phụ huynh" ở cuối câu trả lời — bạn TUYỆT ĐỐI KHÔNG tự viết đoạn thông báo này (dù trong lịch sử trò chuyện có thấy mẫu đó ở lượt trước, ĐỪNG bắt chước lại). Bạn CHỈ báo 1 câu ngắn gọn kết quả ghi (tên, lớp, tháng, số tiền) rồi DỪNG.
+
 BẠN LÀM ĐƯỢC:
 - Tra cứu (đọc): nợ, đã nộp, doanh thu, sĩ số, thống kê vắng...
 - THU HỌC PHÍ (ghi): đánh dấu học sinh đã đóng.
@@ -1195,16 +1197,12 @@ QUY TẮC TRÌNH BÀY (rất quan trọng):
 // Các công cụ GHI (cần xác nhận)
 const WRITE_TOOLS = ['mark_paid', 'save_attendance', 'add_student', 'transfer_student', 'rename_student', 'add_assistant', 'assign_assistant_classes', 'mark_assistant_taught'];
 
-// Tên gọi (tên riêng) = từ cuối của họ tên đầy đủ. VD "Nguyễn Thị Trúc" → "Trúc".
-function givenName(full: string): string {
-  const parts = (full || '').trim().split(/\s+/);
-  return parts[parts.length - 1] || (full || '').trim();
-}
-
 // Sinh 1 thông báo học phí để CHỦ TRUNG TÂM copy gửi phụ huynh (từ kết quả mark_paid ok=true).
+// Dùng HỌ TÊN ĐẦY ĐỦ (không rút gọn còn tên riêng) — tránh nhầm giữa các em trùng tên riêng
+// (vd "Khánh Phong" và "Hữu Phong" đều có tên riêng cuối là "Phong").
 function buildParentNotice(r: any): string {
   const mo = parseInt(String(r?.thang || '').split('-')[1] || '0', 10);
-  const ten = givenName(r?.ten || '');
+  const ten = (r?.ten || '').trim();
   return `✅ TT_BNP_LẬP_TRÌNH_SÁNG_TẠO XÁC NHẬN HỌC PHÍ
 
 TT đã nhận được học phí tháng ${mo} của em ${ten}.

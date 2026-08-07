@@ -103,10 +103,13 @@ export default function ChatPage() {
     if (inputRef.current) inputRef.current.style.height = 'auto';
     setLoading(true);
     try {
+      // Bỏ khối "Thông báo gửi phụ huynh" khỏi lịch sử gửi lại cho AI — nếu không AI sẽ thấy mẫu
+      // đó trong hội thoại cũ và tự bắt chước viết lại (gây lặp thông báo ở các lượt sau).
+      const historyForApi = newChat.map(m => m.role === 'ai' ? { ...m, content: parseNotices(m.content).intro } : m);
       const res = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages: newChat, pendingActions: pendingRef.current }),
+        body: JSON.stringify({ messages: historyForApi, pendingActions: pendingRef.current }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.answer) {
