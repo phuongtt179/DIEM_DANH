@@ -1,11 +1,64 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { Sparkles, Loader2, Send } from 'lucide-react';
+import { Sparkles, Loader2, Send, Copy, Check } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useRouter } from 'next/navigation';
 
 type Msg = { role: 'user' | 'ai'; content: string };
+
+// Khớp phần đầu khối thông báo phụ huynh do backend sinh (xem noticesBlock() trong api/chat/route.ts)
+const NOTICE_HEADER_RE = /📋[^\n]*thông báo gửi phụ huynh[^\n]*:\n\n/i;
+
+// Tách câu trả lời của AI thành phần chữ chính (intro) + các đoạn thông báo phụ huynh riêng (để gắn nút Copy)
+function parseNotices(content: string): { intro: string; notices: string[] } {
+  const m = content.match(NOTICE_HEADER_RE);
+  if (!m || m.index === undefined) return { intro: content, notices: [] };
+  const intro = content.slice(0, m.index).trimEnd();
+  const block = content.slice(m.index + m[0].length);
+  const notices = block.split(/\n\n─+\n\n/).map(s => s.trim()).filter(Boolean);
+  return { intro, notices };
+}
+
+async function copyText(text: string) {
+  try {
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(text);
+      return;
+    }
+    throw new Error('no clipboard api');
+  } catch {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.focus();
+    ta.select();
+    try { document.execCommand('copy'); } catch { /* bỏ qua, không có cách nào khác */ }
+    document.body.removeChild(ta);
+  }
+}
+
+function NoticeCard({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+  async function handleCopy() {
+    await copyText(text);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }
+  return (
+    <div className="bg-emerald-50 border border-emerald-200 rounded-2xl px-4 py-3 text-sm text-gray-800 whitespace-pre-wrap">
+      {text}
+      <button
+        onClick={handleCopy}
+        className={`mt-2.5 flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition active:scale-95 ${copied ? 'bg-emerald-100 text-emerald-700' : 'bg-emerald-600 text-white hover:bg-emerald-700'}`}
+      >
+        {copied ? <><Check size={13} /> Đã copy</> : <><Copy size={13} /> Copy gửi Zalo</>}
+      </button>
+    </div>
+  );
+}
 
 const SUGGESTIONS = [
   'Ai đang nợ học phí?',
@@ -123,6 +176,7 @@ export default function ChatPage() {
 
         {chat.map((m, i) => {
           const isAi = m.role === 'ai';
+          const { intro, notices } = isAi ? parseNotices(m.content) : { intro: m.content, notices: [] as string[] };
           return (
             <div key={i} className={`flex ${isAi ? 'justify-start' : 'justify-end'}`}>
               {isAi && (
@@ -130,11 +184,21 @@ export default function ChatPage() {
                   <Sparkles size={14} />
                 </div>
               )}
-              <div className={`max-w-[80%] lg:max-w-[65%] px-4 py-2.5 rounded-2xl text-sm leading-relaxed whitespace-pre-wrap
-                ${isAi
-                  ? 'bg-white text-gray-800 border border-indigo-100 rounded-bl-md shadow-sm'
-                  : 'bg-gradient-to-br from-indigo-500 to-blue-600 text-white rounded-br-md shadow-md'}`}>
-                {m.content}
+              <div className="flex flex-col gap-2 max-w-[80%] lg:max-w-[65%]">
+                {intro && (
+                  <div className={`px-4 py-2.5 rounded-2xl text-sm leading-relaxed whitespace-pre-wrap
+                    ${isAi
+                      ? 'bg-white text-gray-800 border border-indigo-100 rounded-bl-md shadow-sm'
+                      : 'bg-gradient-to-br from-indigo-500 to-blue-600 text-white rounded-br-md shadow-md'}`}>
+                    {intro}
+                  </div>
+                )}
+                {notices.length > 0 && (
+                  <p className="text-xs font-semibold text-gray-400 pl-1">
+                    📋 {notices.length > 1 ? `${notices.length} thông báo gửi phụ huynh` : 'Thông báo gửi phụ huynh'}
+                  </p>
+                )}
+                {notices.map((n, ni) => <NoticeCard key={ni} text={n} />)}
               </div>
             </div>
           );
