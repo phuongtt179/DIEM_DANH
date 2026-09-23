@@ -25,8 +25,8 @@ interface StudentAttendance {
 interface MultiClassAttendance {
   studentId: string;
   studentName: string;
-  // Combined attendance from ALL classes with class name
-  attendance: { [date: string]: { status: 'present' | 'absent'; className: string } };
+  // Combined attendance from ALL classes with class name — mảng vì 1 ngày có thể học nhiều ca (nhiều lớp)
+  attendance: { [date: string]: { status: 'present' | 'absent'; className: string }[] };
   dates: string[];
   totalPresent: number;
   totalAbsent: number;
@@ -236,14 +236,14 @@ export default function StatisticsPage() {
       const selectedClassName = selectedClass?.name || 'Lớp chính';
 
       for (const student of multiClassStudents) {
-        const combinedAttendance: { [date: string]: { status: 'present' | 'absent'; className: string } } = {};
+        const combinedAttendance: { [date: string]: { status: 'present' | 'absent'; className: string }[] } = {};
 
         // Add attendance from PRIMARY class (the one we're viewing)
         for (const date of Object.keys(student.attendance)) {
-          combinedAttendance[date] = {
+          (combinedAttendance[date] ??= []).push({
             status: student.attendance[date],
             className: selectedClassName,
-          };
+          });
         }
 
         // Get ALL classes for this student (including other classes)
@@ -272,18 +272,19 @@ export default function StatisticsPage() {
 
           if (otherAttendance && otherAttendance.length > 0) {
             for (const att of otherAttendance) {
-              combinedAttendance[att.date] = {
+              (combinedAttendance[att.date] ??= []).push({
                 status: att.status,
                 className: (oc as any).classes.name,
-              };
+              });
             }
           }
         }
 
         // Sort all dates
         const allDates = Object.keys(combinedAttendance).sort();
-        const totalPresent = Object.values(combinedAttendance).filter(a => a.status === 'present').length;
-        const totalAbsent = Object.values(combinedAttendance).filter(a => a.status === 'absent').length;
+        const allEntries = Object.values(combinedAttendance).flat();
+        const totalPresent = allEntries.filter(a => a.status === 'present').length;
+        const totalAbsent = allEntries.filter(a => a.status === 'absent').length;
 
         if (allDates.length > 0) {
           multiClassData.push({
@@ -828,15 +829,23 @@ export default function StatisticsPage() {
                                 {student.studentName}
                               </td>
                               {allDates.map(date => {
-                                const att = student.attendance[date];
+                                const atts = student.attendance[date] || [];
                                 return (
-                                  <td key={date} className="border border-gray-300 px-1 py-2 text-center" title={att?.className}>
-                                    {att?.status === 'present' ? (
-                                      <Check className="inline text-green-600" size={18} />
-                                    ) : att?.status === 'absent' ? (
-                                      <X className="inline text-red-600" size={18} />
-                                    ) : (
+                                  <td key={date} className="border border-gray-300 px-1 py-2 text-center">
+                                    {atts.length === 0 ? (
                                       <span className="text-gray-300">-</span>
+                                    ) : (
+                                      <div className="flex flex-col items-center gap-0.5">
+                                        {atts.map((att, i) => (
+                                          <span key={i} title={att.className}>
+                                            {att.status === 'present' ? (
+                                              <Check className="inline text-green-600" size={16} />
+                                            ) : (
+                                              <X className="inline text-red-600" size={16} />
+                                            )}
+                                          </span>
+                                        ))}
+                                      </div>
                                     )}
                                   </td>
                                 );
