@@ -18,6 +18,7 @@ export interface Class {
   tuition: number;
   status?: 'active' | 'locked';
   locked_at?: string;
+  deleted_at?: string | null;
   created_at?: string;
   updated_at?: string;
 }

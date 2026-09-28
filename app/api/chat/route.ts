@@ -45,7 +45,7 @@ function monthRange(from: string, to: string): string[] {
 // Tìm lớp theo tên (không phân biệt hoa thường, khớp một phần).
 // Trả về { one } nếu khớp đúng 1 lớp, hoặc { matches } nếu nhiều/không có.
 async function resolveClass(className: string) {
-  const { data } = await supabase.from('classes').select('id, name, tuition, status').order('name');
+  const { data } = await supabase.from('classes').select('id, name, tuition, status').is('deleted_at', null).order('name');
   const kw = normName(className);
 
   // 1) Ưu tiên khớp CHÍNH XÁC tên (để "KN35 TH" không bị lẫn với "KN35 THCS")
@@ -65,6 +65,7 @@ async function toolListClasses() {
   const { data } = await supabase
     .from('classes')
     .select('name, subject, tuition, status')
+    .is('deleted_at', null)
     .order('name');
   return {
     classes: (data || []).map((c: any) => ({

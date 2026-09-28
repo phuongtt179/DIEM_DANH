@@ -56,7 +56,9 @@ export default function AttendancePage() {
 
         if (tcError) throw tcError;
 
-        const assignedClasses = (teacherClasses || []).map((tc: any) => tc.classes);
+        const assignedClasses = (teacherClasses || [])
+          .map((tc: any) => tc.classes)
+          .filter((c: any) => c && !c.deleted_at);
         setClasses(assignedClasses);
         if (assignedClasses.length > 0) {
           setSelectedClassId(assignedClasses[0].id);
@@ -67,6 +69,7 @@ export default function AttendancePage() {
           .from('classes')
           .select('*')
           .eq('status', 'active')
+          .is('deleted_at', null)
           .order('name');
 
         if (error) throw error;

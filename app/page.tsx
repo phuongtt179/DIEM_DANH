@@ -76,7 +76,8 @@ export default function DashboardPage() {
       // Total classes
       const { count: classesCount } = await supabase
         .from('classes')
-        .select('*', { count: 'exact', head: true });
+        .select('*', { count: 'exact', head: true })
+        .is('deleted_at', null);
 
 
       // Today's attendance

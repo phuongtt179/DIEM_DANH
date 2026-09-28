@@ -90,6 +90,7 @@ export default function UsersPage() {
       const { data, error } = await supabase
         .from('classes')
         .select('id, name')
+        .is('deleted_at', null)
         .order('name');
 
       if (error) throw error;

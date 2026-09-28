@@ -138,6 +138,7 @@ function PaymentsContent() {
         .from('classes')
         .select('*')
         .eq('status', 'active')
+        .is('deleted_at', null)
         .order('name');
 
       if (error) throw error;

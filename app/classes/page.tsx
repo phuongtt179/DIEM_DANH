@@ -38,6 +38,7 @@ export default function ClassesPage() {
       const { data, error } = await supabase
         .from('classes')
         .select('*')
+        .is('deleted_at', null)
         .order('created_at', { ascending: false });
 
       if (error) throw error;
@@ -90,17 +91,27 @@ export default function ClassesPage() {
   }
 
   async function handleDelete(classId: string, className: string) {
-    if (!confirm(`Bạn có chắc muốn xóa lớp "${className}"?\nLưu ý: Tất cả học sinh, điểm danh và học phí liên quan sẽ bị xóa.`)) {
+    if (!confirm(`Bạn có chắc muốn xóa lớp "${className}"?\nLớp sẽ biến mất khỏi danh sách, điểm danh và thu học phí. Lịch sử điểm danh/học phí đã có vẫn được giữ lại để báo cáo doanh thu không bị sai lệch.`)) {
       return;
     }
 
     try {
+      // Soft delete: chỉ đánh dấu deleted_at, KHÔNG xóa dòng classes
+      // để payments/attendance cũ vẫn hiện đúng tên lớp và cộng đủ vào doanh thu.
       const { error } = await supabase
         .from('classes')
-        .delete()
+        .update({ deleted_at: new Date().toISOString() })
         .eq('id', classId);
 
       if (error) throw error;
+
+      // Gỡ học sinh khỏi lớp này để không còn xuất hiện trong
+      // điểm danh / thu học phí hiện tại.
+      await supabase
+        .from('student_classes')
+        .delete()
+        .eq('class_id', classId);
+
       alert('Xóa lớp học thành công!');
       loadClasses();
     } catch (error) {

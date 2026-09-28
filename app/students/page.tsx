@@ -35,6 +35,7 @@ export default function StudentsPage() {
       const { data, error } = await supabase
         .from('classes')
         .select('*')
+        .is('deleted_at', null)
         .order('name');
 
       if (error) throw error;

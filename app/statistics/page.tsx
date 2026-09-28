@@ -116,7 +116,9 @@ export default function StatisticsPage() {
 
         if (tcError) throw tcError;
 
-        const assignedClasses = (teacherClasses || []).map((tc: any) => tc.classes);
+        const assignedClasses = (teacherClasses || [])
+          .map((tc: any) => tc.classes)
+          .filter((c: any) => c && !c.deleted_at);
         setClasses(assignedClasses);
         if (assignedClasses.length > 0) {
           setSelectedStatClass(assignedClasses[0].id);
@@ -126,6 +128,7 @@ export default function StatisticsPage() {
         const { data, error } = await supabase
           .from('classes')
           .select('*')
+          .is('deleted_at', null)
           .order('name');
 
         if (error) throw error;

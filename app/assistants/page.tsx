@@ -125,7 +125,7 @@ export default function AssistantsPage() {
     try {
       const [{ data: aData }, { data: cData }, { data: acData }] = await Promise.all([
         supabase.from('assistants').select('*').order('name'),
-        supabase.from('classes').select('id, name, subject').eq('status', 'active').order('name'),
+        supabase.from('classes').select('id, name, subject').eq('status', 'active').is('deleted_at', null).order('name'),
         supabase.from('assistant_classes').select('assistant_id, class_id, rate_per_session'),
       ]);
       setAssistants(aData || []);
