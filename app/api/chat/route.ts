@@ -90,7 +90,7 @@ async function toolListStudents(args: { class_name?: string }) {
       .filter(Boolean);
     return { ten_lop: r.one.name, si_so: students.length, hoc_sinh: students };
   }
-  const { data } = await supabase.from('students').select('name').order('name');
+  const { data } = await supabase.from('students').select('name').is('deleted_at', null).order('name');
   return { tong: (data || []).length, hoc_sinh: (data || []).map((s: any) => s.name) };
 }
 
@@ -391,13 +391,14 @@ async function toolFindStudents(args: { name: string; class_name?: string; month
   // Lấy TẤT CẢ quan hệ (không lọc charge_fee) để không bao giờ "không tìm thấy" em đang tồn tại
   const { data: rels } = await supabase
     .from('student_classes')
-    .select('charge_fee, students ( id, name, status ), classes ( id, name, tuition, status )');
+    .select('charge_fee, enrolled_at, students ( id, name, status ), classes ( id, name, tuition, status )');
 
   let list = (rels || []).filter((r: any) =>
     r.students && r.classes &&
     normName(r.students.name).includes(kw) &&
     r.classes.status !== 'locked' &&
-    r.students.status !== 'on_leave'
+    r.students.status !== 'on_leave' &&
+    (!r.enrolled_at || String(r.enrolled_at).substring(0, 7) <= month)
   );
   if (args.class_name) {
     const cn = normName(args.class_name);
@@ -481,9 +482,11 @@ async function toolGetRoster(args: { class_name: string; date?: string }) {
 
   const { data: rels } = await supabase
     .from('student_classes')
-    .select('students ( id, name, status )')
+    .select('enrolled_at, students ( id, name, status )')
     .eq('class_id', r.one.id);
-  const students = (rels || []).map((x: any) => x.students).filter((s: any) => s && s.status !== 'on_leave');
+  const students = (rels || [])
+    .filter((x: any) => x.students && x.students.status !== 'on_leave' && (!x.enrolled_at || String(x.enrolled_at).substring(0, 10) <= date))
+    .map((x: any) => x.students);
 
   const { data: existing } = await supabase
     .from('attendance')
@@ -513,9 +516,11 @@ async function toolSaveAttendance(args: { class_id: string; date?: string; absen
 
   const { data: rels } = await supabase
     .from('student_classes')
-    .select('students ( id, name, status )')
+    .select('enrolled_at, students ( id, name, status )')
     .eq('class_id', args.class_id);
-  const students = (rels || []).map((x: any) => x.students).filter((s: any) => s && s.status !== 'on_leave');
+  const students = (rels || [])
+    .filter((x: any) => x.students && x.students.status !== 'on_leave' && (!x.enrolled_at || String(x.enrolled_at).substring(0, 10) <= date))
+    .map((x: any) => x.students);
   if (students.length === 0) return { error: 'lớp không có học sinh' };
 
   const { data: existing } = await supabase
@@ -551,7 +556,7 @@ async function toolSaveAttendance(args: { class_id: string; date?: string; absen
 async function toolGetStudentClasses(args: { name: string }) {
   const kw = normName(args.name);
   if (!kw) return { found: 0 };
-  const { data: students } = await supabase.from('students').select('id, name, status');
+  const { data: students } = await supabase.from('students').select('id, name, status').is('deleted_at', null);
   const matched = (students || []).filter((s: any) => normName(s.name).includes(kw));
   if (matched.length === 0) return { found: 0 };
 

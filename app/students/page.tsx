@@ -76,6 +76,7 @@ export default function StudentsPage() {
       const { data: studentsData, error: studentsError } = await supabase
         .from('students')
         .select('*')
+        .is('deleted_at', null)
         .order('name');
 
       if (studentsError) throw studentsError;
@@ -254,17 +255,27 @@ export default function StudentsPage() {
   }
 
   async function handleDelete(studentId: string, studentName: string) {
-    if (!confirm(`Bạn có chắc muốn xóa học sinh "${studentName}"?\nLưu ý: Tất cả điểm danh và học phí liên quan sẽ bị xóa.`)) {
+    if (!confirm(`Bạn có chắc muốn xóa học sinh "${studentName}"?\nEm sẽ biến mất khỏi danh sách, điểm danh và thu học phí. Lịch sử học phí đã đóng vẫn được giữ lại để báo cáo doanh thu không bị sai lệch.`)) {
       return;
     }
 
     try {
+      // Soft delete: chỉ đánh dấu deleted_at, KHÔNG xóa dòng students
+      // để payments/attendance cũ của em vẫn còn cho báo cáo doanh thu.
       const { error } = await supabase
         .from('students')
-        .delete()
+        .update({ deleted_at: new Date().toISOString() })
         .eq('id', studentId);
 
       if (error) throw error;
+
+      // Bỏ khỏi tất cả lớp đang học để em không còn xuất hiện trong
+      // điểm danh / thu học phí / đếm sĩ số hiện tại.
+      await supabase
+        .from('student_classes')
+        .delete()
+        .eq('student_id', studentId);
+
       alert('Xóa học sinh thành công!');
       loadStudents();
     } catch (error) {

@@ -164,6 +164,7 @@ function PaymentsContent() {
         .from('student_classes')
         .select(`
           student_id,
+          enrolled_at,
           students (
             id,
             name,
@@ -192,10 +193,13 @@ function PaymentsContent() {
 
       if (paymentsError) throw paymentsError;
 
-      // Filter out on-leave students, then calculate sessions
-      const activeStudentClasses = (studentClassesData || []).filter(
-        (sc: any) => sc.students?.status !== 'on_leave'
-      );
+      // Filter out on-leave students and students who hadn't enrolled yet in the selected month
+      const activeStudentClasses = (studentClassesData || []).filter((sc: any) => {
+        if (sc.students?.status === 'on_leave') return false;
+        const enrolledMonth = sc.enrolled_at ? String(sc.enrolled_at).substring(0, 7) : null;
+        if (enrolledMonth && enrolledMonth > selectedMonth) return false;
+        return true;
+      });
 
       const records: PaymentRecord[] = await Promise.all(
         activeStudentClasses.map(async (sc: any) => {

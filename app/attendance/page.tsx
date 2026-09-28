@@ -90,6 +90,7 @@ export default function AttendancePage() {
         .select(`
           student_id,
           is_primary,
+          enrolled_at,
           students (
             id,
             name,
@@ -100,10 +101,13 @@ export default function AttendancePage() {
 
       if (scError) throw scError;
 
-      // Filter out on-leave students
-      const activeStudentClasses = (studentClassesData || []).filter(
-        (sc: any) => sc.students?.status !== 'on_leave'
-      );
+      // Filter out on-leave students and students who hadn't enrolled yet on the selected date
+      const activeStudentClasses = (studentClassesData || []).filter((sc: any) => {
+        if (sc.students?.status === 'on_leave') return false;
+        const enrolledDate = sc.enrolled_at ? String(sc.enrolled_at).substring(0, 10) : null;
+        if (enrolledDate && enrolledDate > selectedDate) return false;
+        return true;
+      });
 
       // Get existing attendance records for this date
       const { data: existingAttendance, error: attendanceError } = await supabase

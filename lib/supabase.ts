@@ -30,6 +30,7 @@ export interface Student {
   class_id?: string; // Optional for backward compatibility with multi-class system
   note: string;
   status?: 'active' | 'on_leave';
+  deleted_at?: string | null;
   created_at?: string;
   updated_at?: string;
 }
