@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import { usePathname } from 'next/navigation';
 import { Sparkles, Loader2, Send, X, Bot } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
+import { authHeaders } from '@/lib/supabase';
 
 type Msg = { role: 'user' | 'ai'; content: string };
 
@@ -52,7 +53,7 @@ export default function ChatWidget() {
     try {
       const res = await fetch('/api/chat', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...(await authHeaders()) },
         body: JSON.stringify({ messages: newChat, pendingActions: pendingRef.current }),
       });
       const data = await res.json().catch(() => ({}));

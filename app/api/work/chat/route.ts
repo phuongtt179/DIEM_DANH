@@ -1,4 +1,4 @@
-import { supabase } from '@/lib/supabase';
+import { supabase, withRequestSupabase, getCallerAppUserId, unauthorized } from '@/lib/serverAuth';
 import { getGeminiKeys, callGeminiRotate, isDailyLimit } from '@/lib/gemini';
 import { rangeVN, eventDateVN, sortEvents, todayVN, summarize, type WpEvent, type WpStats } from '@/lib/work';
 
@@ -220,11 +220,15 @@ QUY TẮC:
 // ==================== HANDLER ====================
 
 export async function POST(req: Request) {
+  return withRequestSupabase(req, async () => postImpl(req));
+}
+
+async function postImpl(req: Request) {
   let body: any;
   try { body = await req.json(); } catch { return Response.json({ error: 'bad_request' }, { status: 400 }); }
 
-  const ownerId = String(body?.ownerId || '').trim();
-  if (!ownerId) return Response.json({ error: 'no_owner' }, { status: 400 });
+  const ownerId = await getCallerAppUserId();
+  if (!ownerId) return unauthorized();
 
   const messages = Array.isArray(body?.messages) ? body.messages : [];
   if (messages.length === 0 || !String(messages[messages.length - 1]?.content || '').trim()) {

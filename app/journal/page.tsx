@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { supabase } from '@/lib/supabase';
+import { supabase, authHeaders } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
 import { useRouter } from 'next/navigation';
 import { Send, Loader2, NotebookPen, List, MessageSquare, Star, Pencil, Trash2, Check, X } from 'lucide-react';
@@ -118,7 +118,7 @@ export default function JournalPage() {
         const dayLabel = createdISO ? ' (ngày ' + new Date(createdISO).toLocaleDateString('vi-VN') + ')' : '';
         setMsgs(m => [...m, { role: 'system', content: error ? '⚠️ Lỗi khi lưu — đã chạy SQL thêm cột tags/is_favorite chưa?' : `✅ Đã lưu${dayLabel}${tags.length ? ' — nhãn: ' + tags.join(', ') : ''}.` }]);
       } else {
-        const res = await fetch('/api/journal', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ question: content }) });
+        const res = await fetch('/api/journal', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(await authHeaders()) }, body: JSON.stringify({ question: content }) });
         const data = await res.json().catch(() => ({}));
         if (!res.ok || !data.answer) {
           setMsgs(m => [...m, { role: 'system', content: data.error === 'no_api_key' ? '⚠️ Chưa cấu hình GEMINI_API_KEY.' : '⚠️ Chưa hỏi được, thử lại nhé.' }]);

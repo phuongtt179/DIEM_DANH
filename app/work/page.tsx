@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { CalendarClock, Loader2, Send, Check, Trash2, RotateCcw, CalendarDays, CalendarRange, Calendar, BarChart3, Pencil, ImagePlus, X } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
+import { authHeaders } from '@/lib/supabase';
 import { deriveState, type WpEvent, type WpState, type WpStats } from '@/lib/work';
 
 // src:'quick' = kết quả từ 3 nút/Tổng hợp (chỉ giữ MỘT lần, bấm lại thì thay thế)
@@ -245,7 +246,7 @@ export default function WorkPage() {
     setLoading(true);
     try {
       const res = await fetch('/api/work/list', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        method: 'POST', headers: { 'Content-Type': 'application/json', ...(await authHeaders()) },
         body: JSON.stringify({ ownerId: user.id, range }),
       });
       const data = await res.json().catch(() => ({}));
@@ -266,7 +267,7 @@ export default function WorkPage() {
     setLoading(true);
     try {
       const res = await fetch('/api/work/stats', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        method: 'POST', headers: { 'Content-Type': 'application/json', ...(await authHeaders()) },
         body: JSON.stringify({ ownerId: user.id }),
       });
       const data = await res.json().catch(() => ({}));
@@ -320,7 +321,7 @@ export default function WorkPage() {
     const msgs = [...prior, { role: 'user', content: sendText }];
     try {
       const res = await fetch('/api/work/chat', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        method: 'POST', headers: { 'Content-Type': 'application/json', ...(await authHeaders()) },
         body: JSON.stringify({
           ownerId: user.id, messages: msgs,
           image: curImg ? { data: curImg.base64, mimeType: curImg.mimeType } : undefined,
@@ -340,7 +341,7 @@ export default function WorkPage() {
     if (!user) return;
     try {
       const res = await fetch('/api/work/mutate', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        method: 'POST', headers: { 'Content-Type': 'application/json', ...(await authHeaders()) },
         body: JSON.stringify({ ownerId: user.id, id, op }),
       });
       const data = await res.json().catch(() => ({}));
@@ -359,7 +360,7 @@ export default function WorkPage() {
     if (!user) return;
     try {
       const res = await fetch('/api/work/mutate', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        method: 'POST', headers: { 'Content-Type': 'application/json', ...(await authHeaders()) },
         body: JSON.stringify({ ownerId: user.id, id, op: 'edit', ...patch }),
       });
       const data = await res.json().catch(() => ({}));

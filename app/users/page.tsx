@@ -161,17 +161,21 @@ export default function UsersPage() {
           updated_at: new Date().toISOString(),
         };
 
-        // Only update password if provided
-        if (form.password) {
-          updateData.password_hash = form.password;
-        }
-
         const { error } = await supabase
           .from('app_users')
           .update(updateData)
           .eq('id', editingUser.id);
 
         if (error) throw error;
+
+        // Đổi mật khẩu (nếu có nhập) qua RPC — cập nhật cả tài khoản Supabase Auth thật
+        if (form.password) {
+          const { error: pwError } = await supabase.rpc('admin_set_user_password', {
+            p_app_user_id: editingUser.id,
+            p_password: form.password,
+          });
+          if (pwError) throw pwError;
+        }
 
         // Update teacher classes if role is teacher
         if (form.role === 'teacher') {
@@ -203,16 +207,13 @@ export default function UsersPage() {
           return;
         }
 
-        const { data, error } = await supabase
-          .from('app_users')
-          .insert([{
-            email: form.email.toLowerCase().trim(),
-            name: form.name.trim(),
-            role: form.role,
-            password_hash: form.password,
-          }])
-          .select()
-          .single();
+        // Tạo kèm tài khoản Supabase Auth thật qua RPC (xem migration-auth-step3-real-rls.sql)
+        const { data: newUserId, error } = await supabase.rpc('admin_create_app_user', {
+          p_email: form.email.toLowerCase().trim(),
+          p_password: form.password,
+          p_name: form.name.trim(),
+          p_role: form.role,
+        });
 
         if (error) {
           if (error.code === '23505') {
@@ -224,9 +225,9 @@ export default function UsersPage() {
         }
 
         // Add teacher classes if role is teacher
-        if (form.role === 'teacher' && teacherClasses.length > 0 && data) {
+        if (form.role === 'teacher' && teacherClasses.length > 0 && newUserId) {
           const assignments = teacherClasses.map(classId => ({
-            user_id: data.id,
+            user_id: newUserId,
             class_id: classId,
           }));
 

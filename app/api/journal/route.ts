@@ -1,4 +1,4 @@
-import { supabase } from '@/lib/supabase';
+import { supabase, withRequestSupabase, getCallerAppUserId, unauthorized } from '@/lib/serverAuth';
 import { getGeminiKeys, callGeminiRotate, isDailyLimit } from '@/lib/gemini';
 
 export const maxDuration = 30;
@@ -80,6 +80,13 @@ function detectDateRange(q: string): { start: string; end: string; label: string
 }
 
 export async function POST(req: Request) {
+  return withRequestSupabase(req, async () => postImpl(req));
+}
+
+async function postImpl(req: Request) {
+  const callerId = await getCallerAppUserId();
+  if (!callerId) return unauthorized();
+
   let body: any;
   try { body = await req.json(); } catch { return Response.json({ error: 'bad_request' }, { status: 400 }); }
   const question = String(body?.question || '').trim();

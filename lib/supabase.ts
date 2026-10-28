@@ -9,6 +9,13 @@ if (!supabaseUrl || !supabaseAnonKey) {
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
+// Header Authorization mang theo access token của phiên đăng nhập hiện tại — để các
+// API route phía server (chat, work, journal) nhận biết đúng người gọi cho RLS.
+export async function authHeaders(): Promise<Record<string, string>> {
+  const { data: { session } } = await supabase.auth.getSession();
+  return session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {};
+}
+
 // Database Types
 export interface Class {
   id: string;

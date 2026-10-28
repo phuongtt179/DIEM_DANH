@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import { Sparkles, Loader2, Send, Copy, Check } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useRouter } from 'next/navigation';
+import { authHeaders } from '@/lib/supabase';
 
 type Msg = { role: 'user' | 'ai'; content: string };
 
@@ -108,7 +109,7 @@ export default function ChatPage() {
       const historyForApi = newChat.map(m => m.role === 'ai' ? { ...m, content: parseNotices(m.content).intro } : m);
       const res = await fetch('/api/chat', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...(await authHeaders()) },
         body: JSON.stringify({ messages: historyForApi, pendingActions: pendingRef.current }),
       });
       const data = await res.json().catch(() => ({}));

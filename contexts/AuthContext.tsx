@@ -53,49 +53,70 @@ const rolePermissions: { [role: string]: string[] } = {
   ],
 };
 
+// Lấy hồ sơ (name/role) từ app_users theo auth_user_id, dựng thành User cho context.
+async function loadProfile(authUserId: string): Promise<User | null> {
+  const { data, error } = await supabase
+    .from('app_users')
+    .select('id, email, name, role')
+    .eq('auth_user_id', authUserId)
+    .maybeSingle();
+
+  if (error || !data) return null;
+  return { id: data.id, email: data.email, name: data.name, role: data.role };
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Check for stored user on mount
-    const storedUser = localStorage.getItem('user');
-    if (storedUser) {
-      try {
-        setUser(JSON.parse(storedUser));
-      } catch {
-        localStorage.removeItem('user');
+    let active = true;
+
+    // Khôi phục session Supabase Auth đã lưu (supabase-js tự quản lý trong localStorage)
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
+      if (!active) return;
+      if (session?.user) {
+        const profile = await loadProfile(session.user.id);
+        if (active) setUser(profile);
       }
-    }
-    setLoading(false);
+      if (active) setLoading(false);
+    });
+
+    // Đồng bộ khi session thay đổi (đăng nhập/đăng xuất/refresh token ở tab khác...)
+    const { data: listener } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      if (!active) return;
+      if (session?.user) {
+        const profile = await loadProfile(session.user.id);
+        if (active) setUser(profile);
+      } else {
+        setUser(null);
+      }
+    });
+
+    return () => {
+      active = false;
+      listener.subscription.unsubscribe();
+    };
   }, []);
 
   async function login(email: string, password: string): Promise<{ success: boolean; error?: string }> {
     try {
-      const { data, error } = await supabase
-        .from('app_users')
-        .select('id, email, name, role, password_hash')
-        .eq('email', email.toLowerCase().trim())
-        .single();
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: email.toLowerCase().trim(),
+        password,
+      });
 
-      if (error || !data) {
-        return { success: false, error: 'Email không tồn tại' };
+      if (error || !data.user) {
+        return { success: false, error: 'Email hoặc mật khẩu không đúng' };
       }
 
-      // Simple password check (in production, use proper hashing)
-      if (data.password_hash !== password) {
-        return { success: false, error: 'Mật khẩu không đúng' };
+      const profile = await loadProfile(data.user.id);
+      if (!profile) {
+        await supabase.auth.signOut();
+        return { success: false, error: 'Tài khoản chưa được cấp quyền sử dụng, liên hệ Admin' };
       }
 
-      const userData: User = {
-        id: data.id,
-        email: data.email,
-        name: data.name,
-        role: data.role,
-      };
-
-      setUser(userData);
-      localStorage.setItem('user', JSON.stringify(userData));
+      setUser(profile);
       return { success: true };
     } catch (error) {
       console.error('Login error:', error);
@@ -105,7 +126,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   function logout() {
     setUser(null);
-    localStorage.removeItem('user');
+    supabase.auth.signOut();
   }
 
   function hasPermission(permission: string): boolean {
