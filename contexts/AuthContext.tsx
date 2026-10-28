@@ -72,25 +72,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let active = true;
 
-    // Khôi phục session Supabase Auth đã lưu (supabase-js tự quản lý trong localStorage)
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
-      if (!active) return;
-      if (session?.user) {
-        const profile = await loadProfile(session.user.id);
-        if (active) setUser(profile);
-      }
-      if (active) setLoading(false);
-    });
-
-    // Đồng bộ khi session thay đổi (đăng nhập/đăng xuất/refresh token ở tab khác...)
-    const { data: listener } = supabase.auth.onAuthStateChange(async (_event, session) => {
-      if (!active) return;
-      if (session?.user) {
-        const profile = await loadProfile(session.user.id);
-        if (active) setUser(profile);
-      } else {
-        setUser(null);
-      }
+    // Phát INITIAL_SESSION ngay khi đăng ký (khôi phục phiên đã lưu), rồi mỗi lần đăng nhập/xuất/refresh.
+    // supabase-js giữ khóa auth trong lúc gọi callback: await truy vấn Supabase ngay trong đó
+    // sẽ deadlock (app quay mãi) — nên đẩy sang setTimeout để chạy sau khi khóa được nhả.
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+      setTimeout(async () => {
+        if (!active) return;
+        const profile = session?.user ? await loadProfile(session.user.id) : null;
+        if (!active) return;
+        setUser(profile);
+        setLoading(false);
+      }, 0);
     });
 
     return () => {
@@ -124,9 +116,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }
 
-  function logout() {
+  async function logout() {
     setUser(null);
-    supabase.auth.signOut();
+    await supabase.auth.signOut();
   }
 
   function hasPermission(permission: string): boolean {
