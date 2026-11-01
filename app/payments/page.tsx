@@ -3,7 +3,10 @@
 import { useEffect, useState, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { supabase, Student, Class, Payment } from '@/lib/supabase';
-import { X } from 'lucide-react';
+import { useAuth } from '@/contexts/AuthContext';
+import ReceiptModal from '@/components/ReceiptModal';
+import { ReceiptData } from '@/lib/receipt';
+import { Receipt, X } from 'lucide-react';
 import { format } from 'date-fns';
 
 interface PaymentRecord {
@@ -33,6 +36,8 @@ export default function PaymentsPage() {
 
 function PaymentsContent() {
   const searchParams = useSearchParams();
+  const { user } = useAuth();
+  const [receipt, setReceipt] = useState<ReceiptData | null>(null);
   const urlClassId = searchParams.get('classId');
   const urlMonth = searchParams.get('month');
   const urlStudentId = searchParams.get('studentId');
@@ -251,6 +256,19 @@ function PaymentsContent() {
     setShowModal(true);
   }
 
+  function buildReceipt(record: PaymentRecord): ReceiptData {
+    return {
+      studentName: record.studentName,
+      className: classes.find(c => c.id === selectedClassId)?.name || '',
+      month: selectedMonth,
+      sessions: record.sessions,
+      amount: record.amount,
+      paidDate: record.paidDate || format(new Date(), 'yyyy-MM-dd'),
+      note: record.note,
+      issuedBy: user?.name || '',
+    };
+  }
+
   function closeModal() {
     setShowModal(false);
     setEditingPayment(null);
@@ -277,49 +295,51 @@ function PaymentsContent() {
         .eq('month', selectedMonth)
         .single();
 
-      if (existing) {
-        await supabase
-          .from('payments')
-          .update({
-            status: 'paid',
-            amount: parseFloat(paymentForm.amount),
-            sessions: parseInt(paymentForm.sessions),
-            paid_date: paymentForm.paidDate,
-            note: paymentForm.note || null,
-          })
-          .eq('id', existing.id);
-      } else {
-        await supabase
-          .from('payments')
-          .insert([{
-            student_id: editingPayment.studentId,
-            class_id: selectedClassId,
-            month: selectedMonth,
-            amount: parseFloat(paymentForm.amount),
-            sessions: parseInt(paymentForm.sessions),
-            paid_date: paymentForm.paidDate,
-            status: 'paid',
-            note: paymentForm.note || null,
-          }]);
-      }
+      // RLS chặn update thì không báo lỗi mà trả về 0 dòng — phải kiểm tra để không xuất biên lai sai.
+      const { data: saved, error: saveError } = existing
+        ? await supabase
+            .from('payments')
+            .update({
+              status: 'paid',
+              amount: parseFloat(paymentForm.amount),
+              sessions: parseInt(paymentForm.sessions),
+              paid_date: paymentForm.paidDate,
+              note: paymentForm.note || null,
+            })
+            .eq('id', existing.id)
+            .select('id')
+        : await supabase
+            .from('payments')
+            .insert([{
+              student_id: editingPayment.studentId,
+              class_id: selectedClassId,
+              month: selectedMonth,
+              amount: parseFloat(paymentForm.amount),
+              sessions: parseInt(paymentForm.sessions),
+              paid_date: paymentForm.paidDate,
+              status: 'paid',
+              note: paymentForm.note || null,
+            }])
+            .select('id');
+
+      if (saveError) throw saveError;
+      if (!saved || saved.length === 0) throw new Error('Không có quyền lưu học phí');
+
+      const paidRecord: PaymentRecord = {
+        ...editingPayment,
+        status: 'paid',
+        amount: parseFloat(paymentForm.amount),
+        sessions: parseInt(paymentForm.sessions),
+        paidDate: paymentForm.paidDate,
+        note: paymentForm.note || null,
+      };
 
       setPaymentRecords(records =>
-        records.map(r =>
-          r.studentId === editingPayment.studentId
-            ? {
-                ...r,
-                status: 'paid',
-                amount: parseFloat(paymentForm.amount),
-                sessions: parseInt(paymentForm.sessions),
-                paidDate: paymentForm.paidDate,
-                note: paymentForm.note || null,
-              }
-            : r
-        )
+        records.map(r => (r.studentId === editingPayment.studentId ? paidRecord : r))
       );
 
-      alert('Đã cập nhật học phí thành công!');
       closeModal();
+      setReceipt(buildReceipt(paidRecord));
     } catch (error) {
       console.error('Error saving payment:', error);
       alert('Lỗi khi lưu học phí');
@@ -345,25 +365,26 @@ function PaymentsContent() {
         .eq('month', selectedMonth)
         .single();
 
-      if (existing) {
-        await supabase.from('payments').update({
-          status: 'unpaid',
-          amount,
-          paid_date: null,
-          note: paymentForm.note || null,
-        }).eq('id', existing.id);
-      } else {
-        await supabase.from('payments').insert([{
-          student_id: editingPayment.studentId,
-          class_id: selectedClassId,
-          month: selectedMonth,
-          amount,
-          sessions: parseInt(paymentForm.sessions) || 0,
-          paid_date: null,
-          status: 'unpaid',
-          note: paymentForm.note || null,
-        }]);
-      }
+      const { data: saved, error: saveError } = existing
+        ? await supabase.from('payments').update({
+            status: 'unpaid',
+            amount,
+            paid_date: null,
+            note: paymentForm.note || null,
+          }).eq('id', existing.id).select('id')
+        : await supabase.from('payments').insert([{
+            student_id: editingPayment.studentId,
+            class_id: selectedClassId,
+            month: selectedMonth,
+            amount,
+            sessions: parseInt(paymentForm.sessions) || 0,
+            paid_date: null,
+            status: 'unpaid',
+            note: paymentForm.note || null,
+          }]).select('id');
+
+      if (saveError) throw saveError;
+      if (!saved || saved.length === 0) throw new Error('Không có quyền lưu học phí');
 
       setPaymentRecords(records =>
         records.map(r =>
@@ -397,13 +418,17 @@ function PaymentsContent() {
 
       if (!existing) return;
 
-      await supabase
+      const { data: saved, error: saveError } = await supabase
         .from('payments')
         .update({
           status: 'unpaid',
           paid_date: null,
         })
-        .eq('id', existing.id);
+        .eq('id', existing.id)
+        .select('id');
+
+      if (saveError) throw saveError;
+      if (!saved || saved.length === 0) throw new Error('Không có quyền cập nhật học phí');
 
       setPaymentRecords(records =>
         records.map(r =>
@@ -596,8 +621,22 @@ function PaymentsContent() {
                   </td>
                   <td className="px-3 lg:px-6 py-2 lg:py-3 text-xs lg:text-base text-center">
                     {record.paidDate ? (
-                      <span className="text-green-600 font-semibold">
-                        {format(new Date(record.paidDate), 'dd/MM/yyyy')}
+                      <span className="inline-flex items-center gap-2">
+                        <span className="text-green-600 font-semibold">
+                          {format(new Date(record.paidDate), 'dd/MM/yyyy')}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setReceipt(buildReceipt(record));
+                          }}
+                          title="Xuất biên lai"
+                          aria-label={`Xuất biên lai của ${record.studentName}`}
+                          className="p-1 text-blue-600 hover:bg-blue-50 rounded transition-colors"
+                        >
+                          <Receipt size={18} />
+                        </button>
                       </span>
                     ) : (
                       <span className="text-red-600 font-semibold">Chưa đóng</span>
@@ -773,6 +812,8 @@ function PaymentsContent() {
           </div>
         </div>
       )}
+
+      {receipt && <ReceiptModal data={receipt} onClose={() => setReceipt(null)} />}
     </div>
   );
 }
