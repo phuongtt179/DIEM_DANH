@@ -4,16 +4,6 @@ import { useEffect, useMemo, useState } from 'react';
 import { Copy, Download, Printer, Share2, X } from 'lucide-react';
 import { drawReceipt, receiptFileName, ReceiptData } from '@/lib/receipt';
 
-const ORG_NAME_KEY = 'receipt_org_name';
-
-function readOrgName(): string {
-  try {
-    return localStorage.getItem(ORG_NAME_KEY) || '';
-  } catch {
-    return '';
-  }
-}
-
 function toBlob(canvas: HTMLCanvasElement): Promise<Blob> {
   return new Promise((resolve, reject) => {
     canvas.toBlob(blob => (blob ? resolve(blob) : reject(new Error('toBlob failed'))), 'image/png');
@@ -21,28 +11,19 @@ function toBlob(canvas: HTMLCanvasElement): Promise<Blob> {
 }
 
 export default function ReceiptModal({ data, onClose }: { data: ReceiptData; onClose: () => void }) {
-  const [orgName, setOrgName] = useState('');
   const [message, setMessage] = useState('');
   const [canShare, setCanShare] = useState(false);
   const [canCopy, setCanCopy] = useState(false);
 
   useEffect(() => {
-    setOrgName(readOrgName());
     setCanCopy(typeof ClipboardItem !== 'undefined' && !!navigator.clipboard?.write);
     const probe = new File([''], 'probe.png', { type: 'image/png' });
     setCanShare(!!navigator.canShare?.({ files: [probe] }));
   }, []);
 
-  const canvas = useMemo(() => drawReceipt(data, orgName), [data, orgName]);
+  const canvas = useMemo(() => drawReceipt(data), [data]);
   const imageUrl = useMemo(() => canvas.toDataURL('image/png'), [canvas]);
   const fileName = receiptFileName(data);
-
-  function changeOrgName(value: string) {
-    setOrgName(value);
-    try {
-      localStorage.setItem(ORG_NAME_KEY, value);
-    } catch {}
-  }
 
   async function share() {
     const blob = await toBlob(canvas);
@@ -100,20 +81,6 @@ export default function ReceiptModal({ data, onClose }: { data: ReceiptData; onC
         </div>
 
         <div className="p-4 space-y-3">
-          <div>
-            <label htmlFor="receipt-org-name" className="block text-sm font-semibold text-gray-700 mb-1">
-              Tên trung tâm/người thu (in trên đầu biên lai)
-            </label>
-            <input
-              id="receipt-org-name"
-              type="text"
-              value={orgName}
-              onChange={e => changeOrgName(e.target.value)}
-              placeholder="Để trống nếu không cần"
-              className="w-full px-3 py-2 border-2 border-gray-300 rounded-lg focus:border-blue-500 focus:outline-none text-sm"
-            />
-          </div>
-
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             id="receipt-print-image"

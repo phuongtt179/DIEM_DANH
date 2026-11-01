@@ -3,7 +3,6 @@
 import { useEffect, useState, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { supabase, Student, Class, Payment } from '@/lib/supabase';
-import { useAuth } from '@/contexts/AuthContext';
 import ReceiptModal from '@/components/ReceiptModal';
 import { ReceiptData } from '@/lib/receipt';
 import { Receipt, X } from 'lucide-react';
@@ -36,7 +35,6 @@ export default function PaymentsPage() {
 
 function PaymentsContent() {
   const searchParams = useSearchParams();
-  const { user } = useAuth();
   const [receipt, setReceipt] = useState<ReceiptData | null>(null);
   const urlClassId = searchParams.get('classId');
   const urlMonth = searchParams.get('month');
@@ -265,7 +263,6 @@ function PaymentsContent() {
       amount: record.amount,
       paidDate: record.paidDate || format(new Date(), 'yyyy-MM-dd'),
       note: record.note,
-      issuedBy: user?.name || '',
     };
   }
 

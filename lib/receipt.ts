@@ -1,3 +1,6 @@
+const ORG_NAME = 'Lập trình sáng tạo BNP';
+const ISSUER_NAME = 'Thầy Phương';
+
 export interface ReceiptData {
   studentName: string;
   className: string;
@@ -6,7 +9,6 @@ export interface ReceiptData {
   amount: number;
   paidDate: string; // yyyy-MM-dd
   note: string | null;
-  issuedBy: string;
 }
 
 const DIGITS = ['không', 'một', 'hai', 'ba', 'bốn', 'năm', 'sáu', 'bảy', 'tám', 'chín'];
@@ -89,7 +91,7 @@ function wrap(ctx: CanvasRenderingContext2D, text: string, maxWidth: number): st
   return lines;
 }
 
-export function drawReceipt(data: ReceiptData, orgName: string): HTMLCanvasElement {
+export function drawReceipt(data: ReceiptData): HTMLCanvasElement {
   const [year, month] = data.month.split('-');
   const [paidYear, paidMonth, paidDay] = data.paidDate.split('-');
   const contentWidth = WIDTH - PADDING * 2;
@@ -110,11 +112,11 @@ export function drawReceipt(data: ReceiptData, orgName: string): HTMLCanvasEleme
   measure.font = `italic 18px ${FONT}`;
   const wordLines = wrap(measure, `Bằng chữ: ${amountInWords(data.amount)}`, contentWidth - 40);
   measure.font = `700 22px ${FONT}`;
-  const orgLines = orgName.trim() ? wrap(measure, orgName.trim(), contentWidth) : [];
+  const orgLines = wrap(measure, ORG_NAME, contentWidth);
 
   const height =
     PADDING +
-    orgLines.length * 30 + (orgLines.length ? 16 : 0) +
+    orgLines.length * 30 + 16 +
     92 +
     rows.reduce((sum, row) => sum + row.lines.length * 28 + 14, 0) +
     16 + 74 + wordLines.length * 26 + 24 +
@@ -141,7 +143,7 @@ export function drawReceipt(data: ReceiptData, orgName: string): HTMLCanvasEleme
     ctx.fillText(line, WIDTH / 2, y + 12);
     y += 30;
   }
-  if (orgLines.length) y += 16;
+  y += 16;
 
   ctx.font = `700 32px ${FONT}`;
   ctx.fillText('BIÊN LAI THU HỌC PHÍ', WIDTH / 2, y + 26);
@@ -187,7 +189,7 @@ export function drawReceipt(data: ReceiptData, orgName: string): HTMLCanvasEleme
   ctx.fillText('Người lập biên lai', WIDTH - PADDING, y + 60);
   ctx.fillStyle = INK;
   ctx.font = `600 20px ${FONT}`;
-  ctx.fillText(data.issuedBy, WIDTH - PADDING, y + 90);
+  ctx.fillText(ISSUER_NAME, WIDTH - PADDING, y + 90);
 
   return canvas;
 }
