@@ -5,7 +5,6 @@ export interface ReceiptData {
   studentName: string;
   className: string;
   month: string; // yyyy-MM
-  sessions: number;
   amount: number;
   paidDate: string; // yyyy-MM-dd
   note: string | null;
@@ -102,7 +101,7 @@ export function drawReceipt(data: ReceiptData): HTMLCanvasElement {
   const rows: { label: string; lines: string[] }[] = [
     ['Học sinh', data.studentName],
     ['Lớp', data.className],
-    ['Số buổi học', `${data.sessions} buổi`],
+    ['Số buổi học', '8 buổi/tháng'],
     ...(data.note ? [['Ghi chú', data.note]] : []),
   ].map(([label, value]) => {
     measure.font = rowFont;

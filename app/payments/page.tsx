@@ -259,7 +259,6 @@ function PaymentsContent() {
       studentName: record.studentName,
       className: classes.find(c => c.id === selectedClassId)?.name || '',
       month: selectedMonth,
-      sessions: record.sessions,
       amount: record.amount,
       paidDate: record.paidDate || format(new Date(), 'yyyy-MM-dd'),
       note: record.note,
