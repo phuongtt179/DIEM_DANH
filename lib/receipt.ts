@@ -114,7 +114,7 @@ export function drawReceipt(data: ReceiptData): HTMLCanvasElement {
   const orgLines = wrap(measure, ORG_NAME, contentWidth);
   measure.font = `italic 18px ${FONT}`;
   const thanksLines = [
-    ...wrap(measure, `TT BNP lập trình sáng tạo đã nhận học phí tháng ${month}/${year}`, contentWidth),
+    ...wrap(measure, `TT Lập trình sáng tạo BNP đã nhận học phí tháng ${month}/${year}`, contentWidth),
     ...wrap(measure, `của em ${data.studentName}. Cảm ơn phụ huynh.`, contentWidth),
   ];
 
