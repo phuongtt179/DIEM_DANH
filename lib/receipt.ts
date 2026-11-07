@@ -112,6 +112,11 @@ export function drawReceipt(data: ReceiptData): HTMLCanvasElement {
   const wordLines = wrap(measure, `Bằng chữ: ${amountInWords(data.amount)}`, contentWidth - 40);
   measure.font = `700 22px ${FONT}`;
   const orgLines = wrap(measure, ORG_NAME, contentWidth);
+  measure.font = `italic 18px ${FONT}`;
+  const thanksLines = [
+    ...wrap(measure, `TT BNP lập trình sáng tạo đã nhận học phí tháng ${month}/${year}`, contentWidth),
+    ...wrap(measure, `của em ${data.studentName}. Cảm ơn phụ huynh.`, contentWidth),
+  ];
 
   const height =
     PADDING +
@@ -119,7 +124,7 @@ export function drawReceipt(data: ReceiptData): HTMLCanvasElement {
     92 +
     rows.reduce((sum, row) => sum + row.lines.length * 28 + 14, 0) +
     16 + 74 + wordLines.length * 26 + 24 +
-    112 + PADDING;
+    112 + 28 + thanksLines.length * 26 + PADDING;
 
   const scale = 2;
   const canvas = document.createElement('canvas');
@@ -189,6 +194,18 @@ export function drawReceipt(data: ReceiptData): HTMLCanvasElement {
   ctx.fillStyle = INK;
   ctx.font = `600 20px ${FONT}`;
   ctx.fillText(ISSUER_NAME, WIDTH - PADDING, y + 90);
+  y += 112;
+
+  ctx.strokeStyle = LINE;
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(PADDING, y);
+  ctx.lineTo(WIDTH - PADDING, y);
+  ctx.stroke();
+  ctx.textAlign = 'center';
+  ctx.fillStyle = INK;
+  ctx.font = `italic 18px ${FONT}`;
+  thanksLines.forEach((line, i) => ctx.fillText(line, WIDTH / 2, y + 34 + i * 26));
 
   return canvas;
 }
